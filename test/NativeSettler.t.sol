@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReferenceFeeERC20} from "../contracts/src/v2/ReferenceFeeERC20.sol";
 import {SquareSink} from "../contracts/src/square/SquareSink.sol";
 import {NativeSettler, IWETH, IStakePool} from "../contracts/src/square/NativeSettler.sol";
+import {NativeSink} from "../contracts/src/square/NativeSink.sol";
 import {IVenue} from "../contracts/src/square/venues/IVenue.sol";
 import {PonsCurveVenue, IPonsCurve, IPonsFactory} from "../contracts/src/square/venues/PonsCurveVenue.sol";
 
@@ -96,7 +97,7 @@ contract CurveStub is IPonsCurve {
 }
 
 contract NativeSettlerTest is Test {
-    address constant BURN = 0x000000000000000000000000000000000000dEaD;
+    NativeSink sink;
     address wizards = address(0x1b88A6c6516FD2918905186F21Bb9F5CaA1a15c8);
     address alice = address(0xA11CE);
     address bob = address(0xB0B);
@@ -119,7 +120,8 @@ contract NativeSettlerTest is Test {
         vs[0] = venue;
         square = new Plain();
         pool.setSquare(address(square));
-        settler = new NativeSettler(vs, IStakePool(address(pool)), weth);
+        sink = new NativeSink();
+        settler = new NativeSettler(vs, IStakePool(address(pool)), weth, payable(address(sink)));
         launch = new LaunchLike(address(settler));
 
         // a market for `launch`: 1M tokens against 10 ETH
@@ -137,10 +139,13 @@ contract NativeSettlerTest is Test {
     function test_walletCannotBeADestination() public {
         IVenue[] memory vs = new IVenue[](0);
         vm.expectRevert();
-        new NativeSettler(vs, IStakePool(address(0xBEEF)), weth);
+        new NativeSettler(vs, IStakePool(address(0xBEEF)), weth, payable(address(sink)));
+        // and the sink has to be a contract too
+        vm.expectRevert();
+        new NativeSettler(vs, IStakePool(address(pool)), weth, payable(address(0xBEEF)));
     }
 
-    function test_feesSettleToBurnedEthAndStakedWeth() public {
+    function test_feesSettleToSunkEthAndStakedWeth() public {
         // alice and bob stake $SQUARE
         vm.startPrank(alice, alice);
         square.approve(address(pool), 1_000_000e18);
@@ -161,16 +166,16 @@ contract NativeSettlerTest is Test {
         vm.stopPrank();
         uint256 landed = launch.balanceOf(address(settler));
         assertGt(landed, 0, "fee landed in kind at the settler");
-        assertEq(launch.balanceOf(BURN), 0, "nothing burned in kind any more");
+        assertEq(launch.balanceOf(0x000000000000000000000000000000000000dEaD), 0, "nothing burned in kind");
         assertEq(settler.pending(address(launch)), landed);
 
         // anyone settles: tokens → ETH, half burned, half WETH to the pool, synced
-        uint256 burnBefore = BURN.balance;
+        uint256 sinkBefore = address(sink).balance;
         vm.roll(8192);
         vm.prank(address(0xCA11), address(0xCA11));
         uint256 ethOut = settler.settle(address(launch), 0);
         assertGt(ethOut, 0);
-        assertEq(BURN.balance - burnBefore, ethOut / 2, "half the ETH burned");
+        assertEq(address(sink).balance - sinkBefore, ethOut / 2, "half the ETH sunk, held by nobody");
         assertEq(weth.balanceOf(address(pool)) + weth.balanceOf(wizards), ethOut - ethOut / 2, "half wrapped and staked");
         // the venue's own hop into the curve can be a reference; whatever it paid lands back here for next time
         assertLt(settler.pending(address(launch)), landed / 50, "at most a sliver waits for the next settle");

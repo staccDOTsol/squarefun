@@ -61,7 +61,7 @@ export function Square() {
     <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
       <h1 className="text-2xl font-semibold tracking-tight text-ink-100">${BRAND.token}</h1>
       <p className="measure mt-1.5 text-sm text-ink-400">
-        Half of every reference fee on every token launched on {BRAND.name} comes here, in kind. {s ? `${100 - s.wizardsBps / 100}%` : 'Most'} goes to
+        Every reference fee on a token launched on {BRAND.name} ends up here. New launches pay a settler that sells the fee for ETH, burns half and sends half here wrapped; the flagship's fees arrive in kind. {s ? `${100 - s.wizardsBps / 100}%` : 'Most'} goes to
         stakers pro rata to their stake as of the previous block; the rest to the Stacc Wizards fanout. Nobody can pause, redirect or
         withdraw it.{' '}
         <a href={`${explorer}/address/${ADDR.sink}`} target="_blank" rel="noreferrer" className="text-brass-400 hover:underline">
@@ -114,12 +114,18 @@ export function Square() {
                         {t.distributions.length} distribution{t.distributions.length === 1 ? '' : 's'}
                         {t.pending > 0 ? ` · ${num(t.pending, 4)} unsynced` : ''}
                         {t.wizardsUnharvested > 0 ? ` · ${num(t.wizardsUnharvested, 2)} at the wizards, unharvested` : ''}
+                        {t.settlerPending > 0 ? ` · ${num(t.settlerPending, 2)} at the settler, unsold` : ''}
                       </p>
                     </div>
                     <div className="num text-right text-[13px]">
                       <p className="text-ink-200">{num(t.distributions.reduce((a, d) => a + d.amount, 0), 2)} to stakers</p>
                       <p className="text-ink-500">yours {wallet.status === 'connected' ? num(t.claimable, 4) : '—'}</p>
                     </div>
+                    {t.settlerPending > 0 && (
+                      <Button size="sm" variant="ghost" loading={busy === `settle-${t.token}`} onClick={() => run(`settle-${t.token}`, () => tx.settle(w, me, t.token as Address), `Settled ${t.symbol} into ETH`)}>
+                        Settle to ETH
+                      </Button>
+                    )}
                     {t.wizardsUnharvested > 0 && (
                       <Button size="sm" variant="ghost" loading={busy === `harvest-${t.token}`} onClick={() => run(`harvest-${t.token}`, () => tx.harvestWizards(w, me, t.token as Address), `Harvested ${t.symbol} for the wizards`)}>
                         Harvest wizards
@@ -178,6 +184,21 @@ export function Square() {
                   suffix={BRAND.token}
                   hint="Staking is itself a transfer: if it is not the first reference to SQUARE in its block, it pays the square."
                 />
+              </div>
+              <div className="mt-2 flex gap-1.5">
+                {([0.25, 0.5, 1] as const).map(p => (
+                  <button
+                    key={p}
+                    disabled={!s || wallet.status !== 'connected'}
+                    onClick={() => {
+                      if (!s) return;
+                      const base = mode === 'stake' ? s.yourWallet : s.yourStake;
+                      setAmt(base > 0 ? String(Number((base * p).toFixed(6))) : '');
+                    }}
+                    className="num rounded border border-brass-700/40 px-2 py-1 text-[12px] text-brass-300 transition-colors hover:border-brass-500 hover:text-brass-200 disabled:opacity-40 focus-visible:outline-brass-400">
+                    {p === 1 ? 'max' : `${p * 100}%`}
+                  </button>
+                ))}
               </div>
               <Button
                 className="mt-3 w-full"

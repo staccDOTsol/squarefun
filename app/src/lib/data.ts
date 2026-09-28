@@ -19,6 +19,8 @@ import {
   batchDeployed,
   LAMBDA_URL,
   wizardsAbi,
+  settlerAbi,
+  WETH,
   robinhood,
   sinkAbi,
   tokenAbi,
@@ -251,10 +253,11 @@ export const data = {
     const to = await latestBlock();
     // every launch is a potential payer; show the ones with anything landed or distributed
     const launches = await launchLogs(BigInt(ADDR.deployBlock), to);
-    const tokens = [...new Set(launches.map(l => l.args.token!.toLowerCase() as Address))].filter(t => t !== ADDR.placeholder?.toLowerCase());
+    // every launch, plus WETH: the settler pays the pool in wrapped ETH
+    const tokens = [...new Set([...launches.map(l => l.args.token!.toLowerCase() as Address), WETH.toLowerCase() as Address])].filter(t => t !== ADDR.placeholder?.toLowerCase());
     const perToken = await Promise.all(
       tokens.map(async token => {
-        const [symbol, count, claimable, poolBal, poolReserved, legacyBal, legacyReserved, wizBal, wizReserved] = await Promise.all([
+        const [symbol, count, claimable, poolBal, poolReserved, legacyBal, legacyReserved, wizBal, wizReserved, settlerBal] = await Promise.all([
           publicClient.readContract({address: token, abi: tokenAbi, functionName: 'symbol'}).catch(() => 'TOKEN'),
           publicClient.readContract({address: ADDR.sink, abi: sinkAbi, functionName: 'distributionCount', args: [token]}),
           you ? publicClient.readContract({address: ADDR.sink, abi: sinkAbi, functionName: 'claimable', args: [you, token]}) : Promise.resolve(0n),
@@ -264,6 +267,7 @@ export const data = {
           legacy ? publicClient.readContract({address: legacy, abi: sinkAbi, functionName: 'reserved', args: [token]}) : Promise.resolve(0n),
           publicClient.readContract({address: token, abi: erc20Abi, functionName: 'balanceOf', args: [ADDR.wizards]}),
           publicClient.readContract({address: ADDR.wizards, abi: wizardsAbi, functionName: 'reserved', args: [token]}).catch(() => 0n),
+          ADDR.settler ? publicClient.readContract({address: token, abi: erc20Abi, functionName: 'balanceOf', args: [ADDR.settler]}).catch(() => 0n) : Promise.resolve(0n),
         ]);
         const distributions: Distribution[] = await Promise.all(
           Array.from({length: Number(count)}, async (_, i) => {
@@ -276,7 +280,7 @@ export const data = {
         const here = poolBal > poolReserved ? poolBal - poolReserved : 0n;
         // the wizards' cut arrives at sync but their fanout only counts it once someone harvests
         const wizardsUnharvested = wizBal > wizReserved ? f(wizBal - wizReserved) : 0;
-        return {token, symbol, distributions, claimable: f(claimable), pending: f(upstream + here), wizardsUnharvested};
+        return {token, symbol, distributions, claimable: f(claimable), pending: f(upstream + here), wizardsUnharvested, settlerPending: f(settlerBal)};
       }),
     );
     return {
@@ -284,7 +288,7 @@ export const data = {
       wizardsBps,
       yourStake: f(yourStake),
       yourWallet: f(yourWallet),
-      tokens: perToken.filter(t => t.distributions.length > 0 || t.pending > 0 || t.wizardsUnharvested > 0),
+      tokens: perToken.filter(t => t.distributions.length > 0 || t.pending > 0 || t.wizardsUnharvested > 0 || t.settlerPending > 0),
     };
   },
 
@@ -546,6 +550,13 @@ export const tx = {
 
   async sync(w: WalletClient, account: Address, token: Address) {
     const hash = await w.writeContract({chain: robinhood, account, address: ADDR.sink, abi: sinkAbi, functionName: 'sync', args: [token]});
+    await publicClient.waitForTransactionReceipt({hash});
+    return hash;
+  },
+
+  /** Sell what the settler holds of `token` for ETH: half burned, half to the pool as WETH. Anyone may call. */
+  async settle(w: WalletClient, account: Address, token: Address) {
+    const hash = await w.writeContract({chain: robinhood, account, address: ADDR.settler!, abi: settlerAbi, functionName: 'settle', args: [token, 0n]});
     await publicClient.waitForTransactionReceipt({hash});
     return hash;
   },

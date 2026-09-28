@@ -29,6 +29,11 @@ export const ADDR = deployment as {
   factoryV2?: Address;
   launchDeployerV2?: Address;
   deployBlockV2?: number;
+  /** NativeSettler: every v2 launch's fee lands here in kind; anyone settles it into ETH */
+  settler?: Address;
+  squareVenue?: Address;
+  /** WETH9 on Robinhood: the staked half arrives at the pool wrapped */
+  weth?: Address;
   /** MigrateFactory: the pooper scooper. Zero until deployed. */
   migrateFactory?: Address;
   /** ScoopBatch: a whole wallet in one transaction */
@@ -227,3 +232,11 @@ export const wizardsAbi = parseAbi([
   'function pending(address token, uint256 id) view returns (uint256)',
   'function tokenCount() view returns (uint256)',
 ]);
+
+export const settlerAbi = parseAbi([
+  'event Settled(address indexed token, address indexed venue, uint256 sold, uint256 ethOut, uint256 burned, uint256 staked)',
+  'function pending(address token) view returns (uint256)',
+  'function venueFor(address token) view returns (address)',
+  'function settle(address token, uint256 amount) returns (uint256 ethOut)',
+]);
+export const WETH: Address = (ADDR.weth ?? '0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73') as Address;

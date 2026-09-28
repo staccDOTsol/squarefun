@@ -16,17 +16,18 @@ import {PonsV2GraduationExecutor} from "../contracts/src/v2/PonsV2GraduationExec
 import {PonsV2LaunchDeployer} from "../contracts/src/v2/PonsV2LaunchDeployer.sol";
 import {IPonsV2FeeEscrow, IPonsV2FeePolicy} from "../contracts/src/v2/interfaces/ILaunchpadV2.sol";
 import {NativeSettler, IWETH, IStakePool} from "../contracts/src/square/NativeSettler.sol";
+import {NativeSink} from "../contracts/src/square/NativeSink.sol";
 import {IVenue} from "../contracts/src/square/venues/IVenue.sol";
 import {SquareVenue} from "../contracts/src/square/venues/SquareVenue.sol";
 
-/// @title DeployPadV2: a second pad whose launches mint the two-ratchet token, feeding the same sink.
+/// @title DeployPadV3: a second pad whose launches mint the two-ratchet token, feeding the same sink.
 /// @notice The v1 factory's launch deployer is one-shot, so new launches need a new factory. Everything
 ///         is redeployed except the sink and the pool: every launch's reference beneficiary is the
 ///         legacy sink 0x2E1c…1C35, which SquareStake already drains. The v1 pad stays live for the
 ///         flagship and the launches it already made; the site reads both factories.
 ///         env PRIVATE_KEY (or --sender to simulate).
-///         forge script script/DeployPadV2.s.sol --rpc-url https://rpc.mainnet.chain.robinhood.com --broadcast
-contract DeployPadV2 is Script {
+///         forge script script/DeployPadV3.s.sol --rpc-url https://rpc.mainnet.chain.robinhood.com --broadcast
+contract DeployPadV3 is Script {
     // canonical Uniswap v4 on Robinhood Chain (the same singletons Pons uses)
     IPoolManager constant POOL_MANAGER = IPoolManager(0x8366a39CC670B4001A1121B8F6A443A643e40951);
     IPositionManager constant POSITION_MANAGER = IPositionManager(0x58daec3116aae6D93017bAAea7749052E8a04fA7);
@@ -86,7 +87,8 @@ contract DeployPadV2 is Script {
         venues[2] = IVenue(V4_VENUE);
         venues[3] = IVenue(UNIV3_VENUE);
         venues[4] = IVenue(UNIV2_VENUE);
-        NativeSettler settler = new NativeSettler(venues, IStakePool(POOL), IWETH(WETH));
+        NativeSink sink = new NativeSink();
+        NativeSettler settler = new NativeSettler(venues, IStakePool(POOL), IWETH(WETH), payable(address(sink)));
 
         // 4. factory + helpers that need its address
         PonsV2LaunchFactory factory = new PonsV2LaunchFactory(
@@ -134,6 +136,7 @@ contract DeployPadV2 is Script {
         console.log("vault    ", address(vault));
         console.log("locker   ", address(locker));
         console.log("squareVenue", address(venues[0]));
+        console.log("sink     ", address(sink));
         console.log("settler  ", address(settler));
         console.log("factory  ", address(factory));
         console.log("executor ", address(executor));
@@ -146,6 +149,7 @@ contract DeployPadV2 is Script {
         vm.serializeAddress(j, "vault", address(vault));
         vm.serializeAddress(j, "locker", address(locker));
         vm.serializeAddress(j, "squareVenue", address(venues[0]));
+        vm.serializeAddress(j, "nativeSink", address(sink));
         vm.serializeAddress(j, "settler", address(settler));
         vm.serializeAddress(j, "factory", address(factory));
         vm.serializeAddress(j, "executor", address(executor));

@@ -1,6 +1,7 @@
 import {useEffect, useMemo, useState} from 'react';
 import {data, tx} from '../lib/data';
 import {referenceFeeBps} from '../lib/fee';
+import {erc20Abi, publicClient} from '../lib/chain';
 import {num, pct} from '../lib/format';
 import type {Launch} from '../lib/types';
 import {useWallet} from '../lib/wallet';
@@ -21,6 +22,30 @@ export function TradePanel({l, onTraded}: {l: Launch; onTraded?: () => void}) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // wallet balances for the quick buttons: ETH for buys (max leaves 1% for gas), the token for sells
+  const [bal, setBal] = useState<{eth: number; token: number} | null>(null);
+  useEffect(() => {
+    if (!wallet.address) {
+      setBal(null);
+      return;
+    }
+    let dead = false;
+    Promise.all([
+      publicClient.getBalance({address: wallet.address}),
+      publicClient.readContract({address: l.token, abi: erc20Abi, functionName: 'balanceOf', args: [wallet.address]}),
+    ])
+      .then(([e, t]) => !dead && setBal({eth: Number(e) / 1e18, token: Number(t) / 1e18}))
+      .catch(() => !dead && setBal(null));
+    return () => {
+      dead = true;
+    };
+  }, [wallet.address, l.token, busy]);
+  const quick = (pct: number) => {
+    if (!bal) return;
+    const base = side === 'buy' ? bal.eth : bal.token;
+    const v = pct >= 1 ? (side === 'buy' ? base * 0.99 : base) : base * pct;
+    setAmount(v > 0 ? String(Number(v.toFixed(side === 'buy' ? 6 : 4))) : '');
+  };
 
   const n = Number(amount);
   const invalid = amount !== '' && (!Number.isFinite(n) || n <= 0);
@@ -139,9 +164,9 @@ export function TradePanel({l, onTraded}: {l: Launch; onTraded?: () => void}) {
           error={invalid ? 'Enter a positive amount' : error ?? undefined}
           disabled={busy}
         />
-        {side === 'buy' && (
-          <div className="mt-2 flex gap-1.5">
-            {['0.01', '0.05', '0.1', '0.5'].map(q => (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {side === 'buy' &&
+            ['0.01', '0.05', '0.1', '0.5'].map(q => (
               <button
                 key={q}
                 onClick={() => setAmount(q)}
@@ -149,8 +174,17 @@ export function TradePanel({l, onTraded}: {l: Launch; onTraded?: () => void}) {
                 {q}
               </button>
             ))}
-          </div>
-        )}
+          {bal &&
+            ([0.25, 0.5, 1] as const).map(p => (
+              <button
+                key={p}
+                onClick={() => quick(p)}
+                title={p === 1 ? (side === 'buy' ? '99% of your ETH, the rest is gas' : 'Everything') : `${p * 100}% of what you hold`}
+                className="num rounded border border-brass-700/40 px-2 py-1 text-[12px] text-brass-300 transition-colors hover:border-brass-500 hover:text-brass-200 focus-visible:outline-brass-400">
+                {p === 1 ? 'max' : `${p * 100}%`}
+              </button>
+            ))}
+        </div>
       </div>
 
       <dl className="num mt-4 space-y-1.5 text-[13px]">

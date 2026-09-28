@@ -70,7 +70,7 @@ export interface SinkState {
   wizardsBps: number;
   yourStake: number;
   yourWallet: number;
-  tokens: Array<{token: Address; symbol: string; distributions: Distribution[]; claimable: number; pending: number; wizardsUnharvested: number}>;
+  tokens: Array<{token: Address; symbol: string; distributions: Distribution[]; claimable: number; pending: number; wizardsUnharvested: number; settlerPending: number}>;
 }
 
 export interface LaunchConfig {
