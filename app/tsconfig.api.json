@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "noUnusedLocals": false,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "api",
+    "src/deployments"
+  ]
+}

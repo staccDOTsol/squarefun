@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#171512"/>
+      <stop offset="1" stop-color="#0e0d0b"/>
+    </linearGradient>
+    <linearGradient id="brass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f2c56b"/>
+      <stop offset="1" stop-color="#d99a2b"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <g transform="translate(96 175)">
+    <rect x="0" y="0" width="280" height="280" rx="28" fill="none" stroke="url(#brass)" stroke-width="40" stroke-linejoin="round"/>
+    <path d="M86 194V86h108" fill="none" stroke="url(#brass)" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="456" y="300" font-family="Space Grotesk, Helvetica, Arial, sans-serif" font-weight="700" font-size="128" fill="#f3efe7" letter-spacing="-4">Square</text>
+  <text x="460" y="372" font-family="Space Grotesk, Helvetica, Arial, sans-serif" font-weight="500" font-size="40" fill="#b9b1a3">A square deal for every launch</text>
+  <text x="460" y="424" font-family="Space Grotesk, Helvetica, Arial, sans-serif" font-weight="500" font-size="40" fill="#b9b1a3">on Robinhood Chain.</text>
+  <text x="460" y="500" font-family="JetBrains Mono, Menlo, monospace" font-size="26" fill="#e2a83a">the k-th reference in a block pays k²</text>
+</svg>

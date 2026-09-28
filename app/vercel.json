@@ -1,0 +1,56 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "bun run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/t/:token",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*([Tt]witterbot|facebookexternalhit|[Tt]elegram[Bb]ot|[Dd]iscordbot|[Ss]lackbot|[Ll]inked[Ii]n[Bb]ot|[Ww]hats[Aa]pp|[Ee]mbedly|[Pp]interest|redditbot|[Aa]pplebot|[Gg]ooglebot|bingbot|[Ff]arcaster|[Ww]arpcast|[Bb]luesky|[Ii]framely|[Mm]astodon|[Tt]hreads).*"
+        }
+      ],
+      "destination": "/api/share?token=:token"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/og.png",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=300, stale-while-revalidate=3600"
+        }
+      ]
+    }
+  ],
+  "functions": {
+    "api/og.tsx": {
+      "includeFiles": "{brand/fonts/**,src/deployments/**,node_modules/harfbuzzjs/**,node_modules/yoga-wasm-web/**}",
+      "memory": 1024,
+      "maxDuration": 15
+    },
+    "api/share.ts": {
+      "includeFiles": "src/deployments/**"
+    },
+    "api/upload.ts": {
+      "maxDuration": 10
+    }
+  }
+}

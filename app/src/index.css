@@ -1,0 +1,205 @@
+@import "tailwindcss";
+
+/*
+  Square design tokens.
+
+  Emotion: precision with momentum. A market venue that is honest about what it
+  charges, on a chain whose users think in stock words. So: near-black warm
+  neutrals (tinted toward the accent hue, never pure grey), one accent family
+  (brass: warm, honest, unlike the sea of mint-green pads), semantic buy/sell greens and reds derived in the same
+  space, and the accent used rarely (60-30-10).
+
+  Everything is oklch so equal steps in L are equal steps to the eye. Chroma is
+  clamped at the lightness extremes so the darks do not go muddy and the
+  lights do not go neon.
+*/
+@theme {
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* neutrals, hue 70 (brass) at very low chroma */
+  --color-ink-950: oklch(0.13 0.008 70);
+  --color-ink-900: oklch(0.17 0.01 70);
+  --color-ink-850: oklch(0.2 0.011 70);
+  --color-ink-800: oklch(0.24 0.012 70);
+  --color-ink-700: oklch(0.32 0.013 70);
+  --color-ink-600: oklch(0.42 0.014 70);
+  --color-ink-500: oklch(0.55 0.014 70);
+  --color-ink-400: oklch(0.68 0.012 70);
+  --color-ink-300: oklch(0.8 0.01 70);
+  --color-ink-200: oklch(0.88 0.008 70);
+  --color-ink-100: oklch(0.95 0.006 70);
+
+  /* accent: brass */
+  --color-brass-300: oklch(0.9 0.09 80);
+  --color-brass-400: oklch(0.84 0.14 78);
+  --color-brass-500: oklch(0.78 0.16 74);
+  --color-brass-600: oklch(0.68 0.15 70);
+  --color-brass-700: oklch(0.55 0.12 66);
+  --color-brass-900: oklch(0.3 0.06 66);
+
+  /* semantic, same space */
+  --color-up-400: oklch(0.82 0.17 150);
+  --color-up-500: oklch(0.72 0.17 150);
+  --color-up-900: oklch(0.3 0.06 150);
+  --color-down-400: oklch(0.78 0.17 25);
+  --color-down-500: oklch(0.66 0.19 25);
+  --color-down-900: oklch(0.3 0.08 25);
+  --color-warn-500: oklch(0.8 0.15 90);
+
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-in-out-quart: cubic-bezier(0.76, 0, 0.24, 1);
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  html {
+    background: var(--color-ink-950);
+  }
+  body {
+    font-family: var(--font-display);
+    background: var(--color-ink-950);
+    color: var(--color-ink-100);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+  ::selection {
+    background: var(--color-brass-500);
+    color: var(--color-ink-950);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-brass-400);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  button, input, select, textarea {
+    font: inherit;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-ink-950);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-ink-700);
+    border-radius: 4px;
+  }
+}
+
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+@utility measure {
+  max-width: 62ch;
+}
+
+/* motion: every moment has one easing and a reason; none of them bounce */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+@keyframes ring {
+  0% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(-12deg);
+  }
+  40% {
+    transform: rotate(10deg);
+  }
+  60% {
+    transform: rotate(-6deg);
+  }
+  80% {
+    transform: rotate(3deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pulse-dot {
+  0% { transform: scale(1); opacity: 0.6; }
+  70% { transform: scale(2.4); opacity: 0; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+@utility anim-pulse {
+  animation: pulse-dot 1.6s cubic-bezier(0.2, 0.7, 0.3, 1) infinite;
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+}
+@utility anim-rise {
+  animation: rise 360ms var(--ease-out-quart) both;
+}
+@utility anim-fade {
+  animation: fade 240ms var(--ease-out-quart) both;
+}
+@utility anim-toast {
+  animation: toast-in 280ms var(--ease-out-quart) both;
+}
+@utility anim-ring {
+  animation: ring 700ms var(--ease-out-quart) both;
+  transform-origin: 50% 8%;
+}
+@utility skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-ink-850) 0%,
+    var(--color-ink-800) 40%,
+    var(--color-ink-850) 80%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

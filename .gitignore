@@ -1,0 +1,10 @@
+out/
+cache/
+broadcast/*/*/dry-run/
+app/node_modules/
+app/dist/
+app/.vercel/
+app/.env*
+node_modules/
+*.parked
+.DS_Store
