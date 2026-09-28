@@ -43,6 +43,9 @@ interface IERC12384 {
 ///                itself has done lately. First SLOW_FREE free, then SLOW_FLOOR·k² bp,
 ///                capped at SLOW_CAP. Liquidity added and pulled minutes later by the
 ///                same wallet pays on the pull. Nobody can raise anyone else's count.
+///           2a. Dust does not count on the fast ratchet: a transfer under MIN_REF_PPM of
+///              supply leaves the global count alone, so nobody can raise anyone else's k
+///              for the price of dust. It still counts on the sender's own slow ratchet.
 ///           2b. "Block" is the chain's own block. On Arbitrum-family chains
 ///              `block.number` is the parent chain's height (a ~12 s window), so the
 ///              ArbSys precompile is read when it is present.
@@ -73,6 +76,10 @@ abstract contract ReferenceFeeERC20 is ERC20, IERC12384 {
     uint256 public constant SLOW_FREE = 1;
     uint256 public constant SLOW_CAP = 1_000;
     uint256 public constant SLOW_WINDOW = 2048;
+    /// @notice Transfers below this many parts per million of total supply do not count on the
+    ///         fast ratchet: dust cannot raise anyone else's k. They still count, and pay, on the
+    ///         sender's own slow ratchet, so splitting into dust to evade costs the splitter.
+    uint256 public constant MIN_REF_PPM = 10;
     uint256 internal constant BPS = 10_000;
 
     /// @notice Where every fee goes, in kind: the settler that sells it for native, burns half
@@ -134,11 +141,18 @@ abstract contract ReferenceFeeERC20 is ERC20, IERC12384 {
         return r > SLOW_CAP ? SLOW_CAP : r;
     }
 
+    /// @notice Whether a transfer of `value` is big enough to count on the fast ratchet.
+    function countsGlobally(uint256 value) public view returns (bool) {
+        return value * 1_000_000 >= totalSupply() * MIN_REF_PPM;
+    }
+
     /// @dev Count on both ratchets; return the fast (global) ordinal and the fee rate that applies.
-    function _reference() internal returns (uint256 n, uint256 bps) {
+    function _reference(uint256 value) internal returns (uint256 n, uint256 bps) {
         uint64 current = _blockNumber();
-        n = _count(_global, current) + 1;
-        _global = (uint256(current) << 64) | n;
+        if (countsGlobally(value)) {
+            n = _count(_global, current) + 1;
+            _global = (uint256(current) << 64) | n;
+        }
         uint64 window = uint64(current / SLOW_WINDOW);
         uint256 m = _count(_byOrigin[tx.origin], window) + 1;
         _byOrigin[tx.origin] = (uint256(window) << 64) | m;
@@ -159,7 +173,7 @@ abstract contract ReferenceFeeERC20 is ERC20, IERC12384 {
             super._update(from, to, value);
             return;
         }
-        (uint256 n, uint256 bps) = _reference();
+        (uint256 n, uint256 bps) = _reference(value);
         uint256 fee = (value * bps) / BPS;
         if (fee != 0) super._update(from, _beneficiary, fee);
         super._update(from, to, value - fee);

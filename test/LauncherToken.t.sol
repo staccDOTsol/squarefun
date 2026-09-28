@@ -116,6 +116,31 @@ contract LauncherTokenTest is Test {
         assertEq(token.referencesThisWindowBy(alice), 0);
     }
 
+    function test_dustCannotRaiseTheBlockCount() public {
+        vm.prank(curve, curve);
+        token.transfer(alice, 100_000e18);
+        vm.prank(curve, curve);
+        token.transfer(bob, 100_000e18);
+        // a griefer (alice) sprays dust: supply is 1M, so under 10 tokens is under 10 ppm
+        vm.startPrank(alice, alice);
+        for (uint256 i = 0; i < 5; i++) {
+            token.transfer(poolManager, 1e18);
+        }
+        vm.stopPrank();
+        assertEq(token.referencesThisBlock(), 0, "dust never touched the global count");
+        assertEq(token.referencesThisWindowBy(alice), 5, "but it all counted on the sprayer");
+        // a bystander's real transfer in the same block is the first global reference: free
+        vm.prank(bob, bob);
+        token.transfer(poolManager, 10_000e18);
+        assertEq(token.referencesThisBlock(), 1);
+        assertEq(token.balanceOf(poolManager), 5e18 - (5e18 * 0) + 10_000e18 - 0 - _dustFees(), "bob paid nothing");
+    }
+
+    function _dustFees() internal pure returns (uint256 f) {
+        // alice's five dust transfers paid her own slow ratchet: m = 2..5 → 8, 18, 32, 50 bp of 1e18
+        f = 1e18 * 8 / 10_000 + 1e18 * 18 / 10_000 + 1e18 * 32 / 10_000 + 1e18 * 50 / 10_000;
+    }
+
     function test_burnStillWorksAndIsNotAReference() public {
         vm.prank(curve, curve);
         token.transfer(alice, 10e18);
