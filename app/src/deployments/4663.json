@@ -21,22 +21,28 @@
   "migrateFactory": "0x75EE08740B05A07e648f46C8FF87918281d3De67",
   "scoopBatch": "0x30E75187Df90c95aA167C7f4D4532ff5C7793089",
   "legacyMigrateFactory": "0x429Fcda4c23260A4a5B345200899f41Bd9848dC9",
-  "factoryV2": "0x63EBBDAB4088d2B0866015F9653D3bE69Cc8712F",
-  "launchDeployerV2": "0x02a2Bc6a68d6770C083a037a3358FAbe74202845",
-  "tokenDeployerV2": "0x14C02E582E846023C11F2f290DD840a19cB7157F",
-  "hookV2": "0xB27e4d70fF8fc989A2D92Aa5dEB04b9547A7A044",
-  "escrowV2": "0x60E85fC0530ce52415E9b702ED6d241C7ebE6CA9",
-  "vaultV2": "0x038767ECDf4A3e57ebf3437319Ff064Fbda66F10",
-  "lockerV2": "0x108BD75d34cD7640429d0D65526c19C9AD4Dd345",
-  "executorV2": "0x6C61D5189DA2E0af41e371bdde3c9CEa787a3e26",
-  "guardV2": "0xE5059a1b4adF317B53ac7ba230A22f357f44FCF8",
-  "settler": "0x044bCC8684540B503179A6a4aeED3F7431dC1Bf5",
-  "squareVenue": "0x6b7fB4652f23a2616b2e0EB662c32bF5fD40f119",
-  "deployBlockV2": 75026637,
-  "nativeSink": "0x15F911FC063BE016c44F015EbEe695682c532e24",
-  "deadPadV2": {
-    "factory": "0x0e4ee64c03af3910737aE1f9Ae7bFec11bc63572",
-    "settler": "0xB30953DDa7cdbCaBdF04897C043c308EEEE84937",
-    "note": "burning settler, zero launches, never listed"
-  }
+  "factoryV2": "0x9184cce4143EA9287A7e7156Bc6720A9e65392DC",
+  "launchDeployerV2": "0xdEcCe7D972CC10Df2189710E4A83BCE7B8C7BE04",
+  "tokenDeployerV2": "0xa0160EE7F0d8d3eE89b8afa09E288619D1979792",
+  "hookV2": "0x57387B5b814e4083aaAA58578c2b4D2c2138a044",
+  "escrowV2": "0x69fCB929A34E1Bed6C63440f6501026025d54BeC",
+  "vaultV2": "0xBE58D04478903dD58dac8f008445caa33939b48B",
+  "lockerV2": "0x62BAf5723470820e4eBCC860748B89b87ab0FB7B",
+  "executorV2": "0x5fB8D4Cf1C8968052c46A41885ffAA2fAA249140",
+  "guardV2": "0x594a99dFB014053472d7d22caFB7215434977FA6",
+  "settler": "0xCc7a759465dF0A6F93b758e5066fa75AeAD34587",
+  "squareVenue": "0xDFa186e254B2eFfD86324b60F9Fc5Fba21CaCdBB",
+  "deployBlockV2": 75055115,
+  "nativeSink": "0x1c6fE80f37D97AaED55d9313a643b6dF0A59B3Dc",
+  "deadPads": [
+    {
+      "factory": "0x0e4ee64c03af3910737aE1f9Ae7bFec11bc63572",
+      "settler": "0xB30953DDa7cdbCaBdF04897C043c308EEEE84937",
+      "note": "burning settler, zero launches, never listed"
+    },
+    {
+      "factory": "0x63EBBDAB4088d2B0866015F9653D3bE69Cc8712F",
+      "note": "v3, pre-replay constants, zero launches, never listed"
+    }
+  ]
 }
