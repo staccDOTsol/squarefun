@@ -80,6 +80,7 @@ contract SquareStakeTest is Test {
         other.transfer(bob, 100_000e18);
         other.transfer(bob, 100_000e18);
         other.transfer(bob, 100_000e18);
+        other.transfer(bob, 100_000e18);
         vm.stopPrank();
         uint256 inLegacy = other.balanceOf(address(legacy));
         assertGt(inLegacy, 0, "fees landed upstream");
@@ -114,6 +115,7 @@ contract SquareStakeTest is Test {
         next();
         // bob walks $SQUARE itself twice in a block
         vm.startPrank(bob, bob);
+        flagship.transfer(alice, 1_000e18);
         flagship.transfer(alice, 1_000e18);
         flagship.transfer(alice, 1_000e18);
         vm.stopPrank();

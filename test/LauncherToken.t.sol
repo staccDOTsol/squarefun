@@ -78,41 +78,59 @@ contract LauncherTokenTest is Test {
         assertEq(token.balanceOf(poolManager), 99e18);
     }
 
-    function test_fastRatchetIsGlobalAndSparesTheVictim() public {
+    function test_fastRatchetSparesBystandersAndBitesTheSecondSwap() public {
         vm.prank(curve, curve);
-        token.transfer(alice, 100_000e18);
+        token.transfer(alice, 200_000e18);
         vm.prank(curve, curve);
-        token.transfer(bob, 100_000e18);
-        // a sandwich from two wallets: front (alice), victim (bob), back (alice via a second wallet, carol)
-        vm.prank(alice, alice);
-        token.transfer(poolManager, 10_000e18); // #1 free
-        vm.prank(bob, bob);
-        token.transfer(poolManager, 10_000e18); // #2, the victim, free
-        vm.prank(bob, bob);
-        token.transfer(alice, 1_000e18); // bob's 2nd in the window: slow 8 bp, fast #3 = 90 bp → 90 bp
-        assertEq(token.referencesThisBlock(), 3);
-        uint256 fee3 = 1_000e18 * 90 / 10_000;
-        assertEq(token.balanceOf(alice), 100_000e18 - 10_000e18 + 1_000e18 - fee3);
-        assertEq(token.balanceOf(squareSink), fee3);
+        token.transfer(bob, 200_000e18);
+        // alice: a swap is two transfers (pool + hook); bob: one swap in the same block
+        vm.startPrank(alice, alice);
+        token.transfer(poolManager, 10_000e18); // global #1, alice #1
+        token.transfer(poolManager, 10_000e18); // global #2, alice #2: free
+        vm.stopPrank();
+        vm.startPrank(bob, bob);
+        token.transfer(poolManager, 10_000e18); // global #3, bob #1: a bystander, free
+        token.transfer(poolManager, 10_000e18); // global #4, bob #2: still free
+        vm.stopPrank();
+        assertEq(token.balanceOf(poolManager), 40_000e18, "nobody has paid yet");
+        assertEq(token.referencesThisBlock(), 4);
+        assertEq(token.referencesThisBlockBy(bob), 2);
+        // alice's second swap in the block: her 3rd and 4th own references, global #5 and #6
+        vm.startPrank(alice, alice);
+        token.transfer(poolManager, 10_000e18); // fast 10 bp * 25 = 250 bp
+        token.transfer(poolManager, 10_000e18); // fast 10 bp * 36 = 360 bp
+        vm.stopPrank();
+        uint256 fee5 = 10_000e18 * 250 / 10_000;
+        uint256 fee6 = 10_000e18 * 360 / 10_000;
+        assertEq(token.balanceOf(poolManager), 60_000e18 - fee5 - fee6);
+        assertEq(token.balanceOf(squareSink), fee5 + fee6);
         assertEq(token.balanceOf(DEAD), 0, "nothing burned in kind");
         assertEq(token.totalSupply(), 1_000_000e18, "nothing burned");
-        vm.roll(4096);
+        vm.roll(vm.getBlockNumber() + 1);
         assertEq(token.referencesThisBlock(), 0);
+        assertEq(token.referencesThisBlockBy(alice), 0);
     }
 
-    function test_slowRatchetFollowsTheWallet() public {
-        vm.roll(2048 * 10); // start of a window
+    function test_slowRatchetFollowsTheWalletForAWeek() public {
+        uint256 W = token.SLOW_WINDOW();
+        vm.roll(W * 10);
         vm.prank(curve, curve);
-        token.transfer(alice, 100_000e18);
+        token.transfer(alice, 500_000e18);
+        // sixteen touches over the week are free; each in its own block so the fast gate never opens
+        for (uint256 i = 0; i < 16; i++) {
+            vm.roll(W * 10 + 1000 * (i + 1));
+            vm.prank(alice, alice);
+            token.transfer(poolManager, 1_000e18);
+        }
+        assertEq(token.balanceOf(poolManager), 16_000e18, "sixteen free");
+        assertEq(token.referencesThisWindowBy(alice), 16);
+        // the seventeenth pays 2 bp * 17² = 578 bp
+        vm.roll(W * 10 + 1000 * 17);
         vm.prank(alice, alice);
-        token.transfer(poolManager, 10_000e18); // window ref #1, free
-        vm.roll(2048 * 10 + 1000); // same window, new block
-        vm.prank(alice, alice);
-        token.transfer(poolManager, 10_000e18); // window ref #2: slow 8 bp; fast #1 = free
-        assertEq(token.referencesThisWindowBy(alice), 2);
-        uint256 fee = 10_000e18 * 8 / 10_000;
-        assertEq(token.balanceOf(poolManager), 20_000e18 - fee);
-        vm.roll(2048 * 11); // next window
+        token.transfer(poolManager, 1_000e18);
+        assertEq(token.balanceOf(poolManager), 17_000e18 - 1_000e18 * 578 / 10_000);
+        // next week, clean slate
+        vm.roll(W * 11);
         assertEq(token.referencesThisWindowBy(alice), 0);
     }
 
@@ -121,7 +139,7 @@ contract LauncherTokenTest is Test {
         token.transfer(alice, 100_000e18);
         vm.prank(curve, curve);
         token.transfer(bob, 100_000e18);
-        // a griefer (alice) sprays dust: supply is 1M, so under 10 tokens is under 10 ppm
+        // a griefer sprays dust: supply is 1M, so under 100 tokens is under 100 ppm
         vm.startPrank(alice, alice);
         for (uint256 i = 0; i < 5; i++) {
             token.transfer(poolManager, 1e18);
@@ -129,16 +147,10 @@ contract LauncherTokenTest is Test {
         vm.stopPrank();
         assertEq(token.referencesThisBlock(), 0, "dust never touched the global count");
         assertEq(token.referencesThisWindowBy(alice), 5, "but it all counted on the sprayer");
-        // a bystander's real transfer in the same block is the first global reference: free
         vm.prank(bob, bob);
         token.transfer(poolManager, 10_000e18);
         assertEq(token.referencesThisBlock(), 1);
-        assertEq(token.balanceOf(poolManager), 5e18 - (5e18 * 0) + 10_000e18 - 0 - _dustFees(), "bob paid nothing");
-    }
-
-    function _dustFees() internal pure returns (uint256 f) {
-        // alice's five dust transfers paid her own slow ratchet: m = 2..5 → 8, 18, 32, 50 bp of 1e18
-        f = 1e18 * 8 / 10_000 + 1e18 * 18 / 10_000 + 1e18 * 32 / 10_000 + 1e18 * 50 / 10_000;
+        assertEq(token.balanceOf(poolManager), 5e18 + 10_000e18, "bob paid nothing, and the dust was under the slow free count too");
     }
 
     function test_burnStillWorksAndIsNotAReference() public {

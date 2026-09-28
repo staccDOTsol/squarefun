@@ -163,6 +163,7 @@ contract NativeSettlerTest is Test {
         launch.transfer(bob, 10_000e18);
         launch.transfer(bob, 10_000e18);
         launch.transfer(bob, 10_000e18);
+        launch.transfer(bob, 10_000e18);
         vm.stopPrank();
         uint256 landed = launch.balanceOf(address(settler));
         assertGt(landed, 0, "fee landed in kind at the settler");
@@ -196,6 +197,7 @@ contract NativeSettlerTest is Test {
         LaunchLike orphan = new LaunchLike(address(settler));
         orphan.mint(alice, 10_000e18);
         vm.startPrank(alice, alice);
+        orphan.transfer(bob, 1_000e18);
         orphan.transfer(bob, 1_000e18);
         orphan.transfer(bob, 1_000e18);
         vm.stopPrank();

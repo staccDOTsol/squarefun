@@ -93,11 +93,11 @@ contract SquareTest is Test {
         // a machine walks the launch token: three transfers in one block
         vm.startPrank(alice, alice);
         launch.transfer(bob, 1_000e18); // free
-        launch.transfer(bob, 1_000e18); // fast #2 free, slow #2 = 8 bp: 0.8e18 fee, 0.4e18 to sink, 0.4e18 dead
-        launch.transfer(bob, 1_000e18); // fast #3 = 90 bp: 9e18 fee, all to the sink
+        launch.transfer(bob, 1_000e18); // free: a swap is two transfers
+        launch.transfer(bob, 1_000e18); // alice's third in the block: fast 90 bp, 9e18 fee, all to the sink
         vm.stopPrank();
         uint256 arrived = launch.balanceOf(address(sink));
-        assertEq(arrived, 0.8e18 + 9e18);
+        assertEq(arrived, 9e18);
         assertEq(launch.balanceOf(DEAD), 0, "nothing burned in kind: the settler burns ETH");
 
         next();
@@ -125,40 +125,44 @@ contract SquareTest is Test {
         uint256 stakeReserved = sink.reserved(address(square));
         // this contract walks SQUARE itself: the second transfer in the block pays 40 bp
         square.transfer(alice, 10_000e18);
-        square.transfer(alice, 10_000e18); // slow #2 = 8 bp: 8e18 fee, all to the sink
-        assertEq(square.balanceOf(address(sink)) - stakeReserved, 8e18);
+        square.transfer(alice, 10_000e18);
+        square.transfer(alice, 10_000e18); // third in the block: fast 90 bp, 90e18 fee, all to the sink
+        assertEq(square.balanceOf(address(sink)) - stakeReserved, 90e18);
         next();
         (uint256 toWizards, uint256 toStakers) = sink.sync(address(square));
-        assertEq(toWizards, 1.6e18);
-        assertEq(toStakers, 6.4e18);
-        assertEq(sink.claimable(carol, address(square)), 4.8e18);
+        assertEq(toWizards, 18e18);
+        assertEq(toStakers, 72e18);
+        assertEq(sink.claimable(carol, address(square)), 54e18);
         next();
         vm.prank(carol, carol);
-        assertEq(sink.claim(address(square), 10), 4.8e18);
+        assertEq(sink.claim(address(square), 10), 54e18);
         next();
         vm.prank(carol, carol);
         sink.unstake(300_000e18);
         assertEq(sink.staked(carol), 0);
         assertEq(sink.totalStaked(), 100_000e18);
-        assertEq(sink.reserved(address(square)), 100_000e18 + 1.6e18, "bob's unclaimed 1.6e18 stays reserved");
+        assertEq(sink.reserved(address(square)), 100_000e18 + 18e18, "bob's unclaimed 18e18 stays reserved");
     }
 
     function test_nobodyStakedGoesToWizards() public {
         vm.startPrank(alice, alice);
-        launch.transfer(bob, 1e18);
-        launch.transfer(bob, 1e18); // slow #2 = 8 bp on 1e18 = 8e14, all to sink
+        // 1e18 of a 1M supply is dust (under 100 ppm) and never counts on the fast ratchet, so use 1000
+        launch.transfer(bob, 1_000e18);
+        launch.transfer(bob, 1_000e18);
+        launch.transfer(bob, 1_000e18); // third in the block: 90 bp on 1_000e18 = 9e18, all to sink
         vm.stopPrank();
         next();
         (uint256 toWizards, uint256 toStakers) = sink.sync(address(launch));
         assertEq(toStakers, 0);
-        assertEq(toWizards, 8e14);
-        assertEq(launch.balanceOf(wizards), 8e14);
+        assertEq(toWizards, 9e18);
+        assertEq(launch.balanceOf(wizards), 9e18);
         assertEq(sink.distributionCount(address(launch)), 0);
     }
 
     function test_lateStakerGetsNothingFromBefore() public {
         _stakeBoth();
         vm.startPrank(alice, alice);
+        launch.transfer(bob, 1_000e18);
         launch.transfer(bob, 1_000e18);
         launch.transfer(bob, 1_000e18);
         vm.stopPrank();
@@ -178,11 +182,12 @@ contract SquareTest is Test {
         next();
         vm.startPrank(alice, alice);
         launch.transfer(carol, 1_000e18);
-        launch.transfer(carol, 1_000e18); // slow #2 = 8 bp: 0.8e18 fee, all to the sink
+        launch.transfer(carol, 1_000e18);
+        launch.transfer(carol, 1_000e18); // third in the block: 90 bp, 9e18 fee, all to the sink
         vm.stopPrank();
         next();
         (, uint256 toStakers) = sink.sync(address(launch));
-        assertEq(toStakers, 0.8e18 * 8_000 / 10_000);
+        assertEq(toStakers, 9e18 * 8_000 / 10_000);
         // 800k staked now: alice half, carol 3/8, bob 1/8
         assertEq(sink.claimable(alice, address(launch)), toStakers / 2);
         assertEq(sink.claimable(bob, address(launch)), bobFirst + toStakers / 8);
@@ -191,6 +196,7 @@ contract SquareTest is Test {
     function test_sameBlockStakeMissesThatBlocksSync() public {
         _stakeBoth();
         vm.startPrank(alice, alice);
+        launch.transfer(bob, 1_000e18);
         launch.transfer(bob, 1_000e18);
         launch.transfer(bob, 1_000e18);
         vm.stopPrank();
@@ -208,6 +214,7 @@ contract SquareTest is Test {
         _stakeBoth();
         for (uint256 i; i < 3; i++) {
             vm.startPrank(alice, alice);
+            launch.transfer(bob, 1_000e18);
             launch.transfer(bob, 1_000e18);
             launch.transfer(bob, 1_000e18);
             vm.stopPrank();

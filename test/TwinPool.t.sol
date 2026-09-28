@@ -111,6 +111,7 @@ contract TwinPoolTest is Test {
         other.transfer(bob, 100_000e18);
         other.transfer(bob, 100_000e18);
         other.transfer(bob, 100_000e18);
+        other.transfer(bob, 100_000e18);
         vm.stopPrank();
         next();
         (, uint256 toSquareStakers) = pool.sync(address(other));
@@ -138,6 +139,7 @@ contract TwinPoolTest is Test {
         vm.stopPrank();
         next();
         vm.startPrank(alice, alice);
+        other.transfer(bob, 100_000e18);
         other.transfer(bob, 100_000e18);
         other.transfer(bob, 100_000e18);
         vm.stopPrank();
