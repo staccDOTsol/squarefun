@@ -103,7 +103,7 @@
   .demo .name em { font-style: italic; }
   .demo p { margin-top: 14px; color: var(--ink-dim); font-size: 18.5px; line-height: 1.6; max-width: 46ch; }
   .demo p b { font-weight: 400; color: var(--ink); }
-  .demo.crekk .name em { color: var(--accent); }
+  .demo.art .name em { color: var(--accent); }
 
   /* ctas */
   .ctas { display: flex; flex-direction: column; gap: 14px; margin-top: 48px; max-width: 560px; }
@@ -153,7 +153,7 @@
       <a href="#eip">the eip</a>
       <a href="#demos">demos</a>
       <a href="#bridge">the bridge</a>
-      <a href="#why">why crekk</a>
+      <a href="#why">why art</a>
     </nav>
   </header>
 
@@ -223,9 +223,9 @@
         <p class="name">the demo is <em>$SQUARE</em>.</p>
         <p>Deployed where the EIP's enrolled registry can be walked for real: same two ratchets, real fees, real wallets, real machines paying them. <b>Watch the receipts, not the whitepaper.</b></p>
       </div>
-      <div class="demo crekk">
+      <div class="demo art">
         <h3>solana</h3>
-        <p class="name">the violent demo is <em>solana on crekk</em>.</p>
+        <p class="name">the violent demo is <em>solana on art</em>.</p>
         <p>The whole chain prices repetition: the k-th write to an account pays <b>5000·k²</b> lamports, every CU and heap ceiling lifted, MEV-less by construction. Not a token extension — <b>the base fee itself.</b> Soon on pump.</p>
       </div>
     </div>
@@ -240,7 +240,7 @@
         <span class="go">ethereum/EIPs#12384 →</span>
       </a>
       <span class="cta soon">
-        <span class="t"><span class="n">03 / </span><b>$CREKK on pump</b> — solana on crekk</span>
+        <span class="t"><span class="n">03 / </span><b>$ART on pump</b> — solana on art</span>
         <span class="go"></span>
       </span>
     </div>
@@ -248,36 +248,36 @@
 
   <section id="bridge">
     <p class="kicker">the bridge — one border, one price</p>
-    <h2 class="big">$CREKK is the only thing that <em>crosses</em>.</h2>
-    <p class="prose">A share vault, the shape of ERC-4626. <b>R</b> = mainnet $CREKK in the vault — every deposit's lock-up plus every fee kept. <b>S</b> = every crekk-side $CREKK, mirrored or bridge-minted, after every burn. <b>The rate R/S starts near zero and only goes up: the vault seeds itself from traffic.</b> A 1% fee on both mint and redeem, taken in mainnet $CREKK, stays in the vault — every crossing is a donation to everyone holding.</p>
+    <h2 class="big">$ART is the only thing that <em>crosses</em>.</h2>
+    <p class="prose">A share vault, the shape of ERC-4626. <b>R</b> = mainnet $ART in the vault — every deposit's lock-up plus every fee kept. <b>S</b> = every art-side $ART, mirrored or bridge-minted, after every burn. <b>The rate R/S starts near zero and only goes up: the vault seeds itself from traffic.</b> A 1% fee on both mint and redeem, taken in mainnet $ART, stays in the vault — every crossing is a donation to everyone holding.</p>
 
     <div class="ratchets">
       <div class="ratchet">
         <div class="head">deposit x on mainnet<span class="formula">mint 0.99x · S/R</span></div>
-        <div class="body">you lock real mainnet $CREKK, you receive crekk-side at the rate, less the fee. <b>the rate is unchanged</b> — the vault is never over- or under-collateralized; total claims are always exactly R.</div>
+        <div class="body">you lock real mainnet $ART, you receive art-side at the rate, less the fee. <b>the rate is unchanged</b> — the vault is never over- or under-collateralized; total claims are always exactly R.</div>
       </div>
       <div class="ratchet">
-        <div class="head">redeem y on crekk<span class="formula">release 0.99 · y · R/S</span></div>
-        <div class="body">burn crekk-side, unlock mainnet at the rate, less the fee. <b>the fee stays in R</b> — so every exit raises the rate for the people who stay. a rush to the door rewards the people still in it: there is no bank-run advantage, everyone redeems at the same R/S.</div>
+        <div class="head">redeem y on art<span class="formula">release 0.99 · y · R/S</span></div>
+        <div class="body">burn art-side, unlock mainnet at the rate, less the fee. <b>the fee stays in R</b> — so every exit raises the rate for the people who stay. a rush to the door rewards the people still in it: there is no bank-run advantage, everyone redeems at the same R/S.</div>
       </div>
       <div class="ratchet">
         <div class="head">buyback-and-burn b<span class="formula">S → S − b</span></div>
-        <div class="body">crekk's fee streams buy crekk-side $CREKK — mirrored float or minted, it's all S — and burn it from total supply. <b>the rate rises to R/(S−b): burn fraction f of supply and the rate multiplies by 1/(1−f)</b>, the ratio from initial, reflected in every mint and redeem. the buybacks run through crekk's own pools, whose fees route back into the buyback. the burn pays for itself.</div>
+        <div class="body">art's fee streams buy art-side $ART — mirrored float or minted, it's all S — and burn it from total supply. <b>the rate rises to R/(S−b): burn fraction f of supply and the rate multiplies by 1/(1−f)</b>, the ratio from initial, reflected in every mint and redeem. the buybacks run through art's own pools, whose fees route back into the buyback. the burn pays for itself.</div>
       </div>
     </div>
 
     <div class="fineprint">
-      <b>the band.</b> the crekk-side price sits within ~1% of R/S — beyond that, mint-and-sell or buy-and-redeem pays. a round trip costs ~2%: the k² fee at the border. <b>two-sided deflation:</b> bridging in locks mainnet float, buybacks burn crekk float — use the chain and both supplies shrink. <b>what can leave is capped:</b> snapshot assets, stables and LSTs are internal value; they exit only by being traded into $CREKK and redeemed. the most that can ever leave is R. invented value is still value — inside.
+      <b>the band.</b> the art-side price sits within ~1% of R/S — beyond that, mint-and-sell or buy-and-redeem pays. a round trip costs ~2%: the k² fee at the border. <b>two-sided deflation:</b> bridging in locks mainnet float, buybacks burn art float — use the chain and both supplies shrink. <b>what can leave is capped:</b> snapshot assets, stables and LSTs are internal value; they exit only by being traded into $ART and redeemed. the most that can ever leave is R. invented value is still value — inside.
     </div>
   </section>
 
   <section id="why">
-    <p class="kicker">why use solana on crekk</p>
+    <p class="kicker">why use solana on art</p>
     <h2 class="big">Your value is already <em>mirrored</em>.</h2>
     <div class="ratchets">
       <div class="ratchet">
         <div class="head">your value is mirrored</div>
-        <div class="body">every mainnet-beta account exists on crekk — same keys, same balances, same pools, same programs. <b>your wallet already works; nothing to bridge, nothing to buy.</b> spending there never touches your mainnet funds.</div>
+        <div class="body">every mainnet-beta account exists on art — same keys, same balances, same pools, same programs. <b>your wallet already works; nothing to bridge, nothing to buy.</b> spending there never touches your mainnet funds.</div>
       </div>
       <div class="ratchet">
         <div class="head">mev-less by construction</div>
@@ -285,7 +285,7 @@
       </div>
       <div class="ratchet">
         <div class="head">no ceilings</div>
-        <div class="body">CU, heap, block limits — lifted. the app that cannot exist on mainnet-beta — <b>a language model inside a transaction</b> — is a normal friday on crekk.</div>
+        <div class="body">CU, heap, block limits — lifted. the app that cannot exist on mainnet-beta — <b>a language model inside a transaction</b> — is a normal friday on art.</div>
       </div>
     </div>
     <div class="fineprint">and the whole mirror exits to real mainnet value through the vault above, at R/S. forked from mainnet-beta at a documented slot — stake rewritten to the chain's own validators, on-curve mint authorities frozen so nobody prints inside, PDAs untouched so LSTs live.</div>
