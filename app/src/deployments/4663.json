@@ -54,6 +54,8 @@
     "deployBlock": 75598921,
     "tokens": [
       "0x357549617ca6947f9b507Cf7274d54c8DE0a40ad"
-    ]
+    ],
+    "tokenFactoryV2": "0x1907998C5b722C66b2941dF80567Cfc46252ac1E",
+    "deployBlockV2": 75645689
   }
 }
