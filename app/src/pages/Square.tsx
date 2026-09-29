@@ -61,7 +61,7 @@ export function Square() {
     <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
       <h1 className="text-2xl font-semibold tracking-tight text-ink-100">${BRAND.token}</h1>
       <p className="measure mt-1.5 text-sm text-ink-400">
-        Every reference fee on a token launched on {BRAND.name} ends up here. New launches pay a settler that sells the fee for ETH, burns half and sends half here wrapped; the flagship's fees arrive in kind. {s ? `${100 - s.wizardsBps / 100}%` : 'Most'} goes to
+        Every reference fee on a token launched on {BRAND.name} ends up here. New launches pay a settler that sells the fee for ETH, sends half to a sink with no owner and half here wrapped, and burns nothing; the flagship's fees arrive in kind. {s ? `${100 - s.wizardsBps / 100}%` : 'Most'} goes to
         stakers pro rata to their stake as of the previous block; the rest to the Stacc Wizards fanout. Nobody can pause, redirect or
         withdraw it.{' '}
         <a href={`${explorer}/address/${ADDR.sink}`} target="_blank" rel="noreferrer" className="text-brass-400 hover:underline">

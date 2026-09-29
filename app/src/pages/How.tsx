@@ -3,7 +3,7 @@ import {referenceFeeBps} from '../lib/fee';
 
 /** Learn: one measure column, real reading rhythm, no cards. */
 export function How() {
-  const rows = [1, 2, 3, 4, 5, 8, 10, 20, 32].map(k => ({k, bps: referenceFeeBps(k)}));
+  const rows = [1, 2, 3, 4, 5, 8, 10, 20, 32].map(k => ({k, bps: referenceFeeBps(k, 2)}));
   return (
     <main className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
       <article className="measure space-y-6 text-[15px] leading-7 text-ink-200">
@@ -13,11 +13,21 @@ export function How() {
           can buy, and when the curve raises its threshold it sweeps into a full-range Uniswap v4 position that nothing can
           remove. What is different is the token.
         </p>
+        <h2 className="pt-2 text-xl font-semibold text-ink-100">The thesis</h2>
+        {BRAND.thesis.map(t => (
+          <p key={t} className="text-ink-100">
+            {t}
+          </p>
+        ))}
+        <p>
+          What runs here is v0 of that rule, at the token level. The token itself counts and charges, so it needs no fork of
+          anything. The protocol form, where the chain charges in gas, is proposed below.
+        </p>
         <h2 className="pt-2 text-xl font-semibold text-ink-100">The square</h2>
         <p>
-          Every token launched here counts its own transfers per block. The first transfer in a block is free. The k-th pays 10
-          basis points times k squared, taken in kind from the transfer, capped at 100%. The count is global for the token: it
-          does not care who is sending, from which wallet, through which venue, or across how many transactions in the block.
+          Every token launched here counts its own transfers per block. The count is global for the token: it does not care
+          which venue, or across how many transactions in the block. The first two transfers in a block are free. The k-th
+          pays 10 basis points times k squared, taken in kind from the transfer, capped at 100%.
         </p>
         <table className="num w-full max-w-sm text-sm">
           <thead className="text-left text-ink-500">
@@ -36,15 +46,31 @@ export function How() {
           </tbody>
         </table>
         <p>
+          Two rules keep bystanders out of it. The fee in the table is charged only to a wallet already on its own third
+          transfer in that block, so a person whose single swap lands in a busy block pays nothing. And a second, slower
+          count follows each wallet on each token across a week: sixteen transfers are free, and after that the m-th pays 2
+          basis points times m squared. A transfer pays the larger of the two.
+        </p>
+        <p>
           A person buying once pays nothing. A machine that initializes a ladder of pools, adds and removes liquidity around a
-          fill, or walks the price through its own venues references the token many times in one block, and pays for every one
-          of them after the first. The bigger the machine, the more it pays: the fee grows with the square of its own size.
+          fill, or keeps coming back to the same token pays more each time. Replayed over 45,728 real transfers on 65
+          launches, wallets shaped like the machine paid 632 basis points of their volume and everyone else paid 19.
+        </p>
+        <p>
+          The flagship ${BRAND.token} launched first and carries the earlier schedule: one free transfer per block, charged
+          to whoever lands next. Every launch since carries the schedule above.
+        </p>
+        <h2 className="pt-2 text-xl font-semibold text-ink-100">Buy here, not on secondaries</h2>
+        <p>
+          {BRAND.secondaries} Buying from and selling to the curve on this site is not a reference and pays no square. A pool
+          someone else opened on the token is an ordinary venue: every transfer in and out of it counts.
         </p>
         <h2 className="pt-2 text-xl font-semibold text-ink-100">Where it goes</h2>
         <p>
-          Half of every fee goes to a sealed address nobody controls. The other half goes to the {BRAND.name} sink, which pays
-          ${BRAND.token} stakers pro rata and the Stacc Wizards fanout. Half is sent to the dead address, where it stays visible and unmovable (supply is unchanged, so it is not a burn in the totalSupply sense). Nothing reaches the party being
-          priced.
+          Nothing is burned. Fees are taken in the token and paid to a settler with no owner. Anyone may settle, which sells
+          the tokens for ETH through the token's own market. Half of the ETH goes to a sink that nobody controls and that can
+          only stake; on {BRAND.chainName}, which has no validator set, it holds. The other half is wrapped and paid to $
+          {BRAND.token} stakers. The flagship's fees arrive at the pool in kind. Nothing reaches the party being priced.
         </p>
         <h2 className="pt-2 text-xl font-semibold text-ink-100">What is not a reference</h2>
         <p>

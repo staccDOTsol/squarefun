@@ -66,10 +66,15 @@ export function Board() {
       <section className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-ink-100 sm:text-3xl">{BRAND.tagline}</h1>
-          <p className="measure mt-1.5 text-sm text-ink-400">
-            Every token launched here counts references per block. The first is free; a machine that touches a token
-            twice in one block pays 40 bp, three times 90 bp, and so on, in kind, to the holders of ${BRAND.token} and to
-            a sink nobody can drain.
+          <p className="measure mt-2 text-sm leading-6 text-ink-300">
+            {BRAND.thesis.join(' ')}
+          </p>
+          <p className="measure mt-2 text-[13px] leading-5 text-ink-500">
+            This is v0 of{' '}
+            <a href={BRAND.standards.eip.url} target="_blank" rel="noreferrer" className="text-brass-400 underline-offset-4 hover:underline">
+              {BRAND.standards.eip.label}
+            </a>
+            , at the token level. {BRAND.secondaries}
           </p>
         </div>
         <Link to="/launch" className="shrink-0">

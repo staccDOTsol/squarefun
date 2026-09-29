@@ -111,6 +111,12 @@ export function Token({address}: {address: string}) {
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
+      <p role="note" className="mb-4 border-l-2 border-brass-500 pl-3 text-[13px] leading-5 text-ink-300">
+        {BRAND.secondaries}{' '}
+        <Link to="/how" className="text-brass-400 underline-offset-4 hover:underline">
+          Why
+        </Link>
+      </p>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <Link to="/" className="text-[13px] text-ink-500 hover:text-ink-200">
           ← Board
