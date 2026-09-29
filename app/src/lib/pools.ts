@@ -29,6 +29,10 @@ export const launchesV2 = TOKEN_FACTORIES.length > 1;
 /** Factories whose launches are listed but never launched through: the moon drop's one-token factory. */
 const LISTED_FACTORIES: Address[] = [...TOKEN_FACTORIES, ...(P?.moonFactory && P.moonFactory !== ZERO ? [P.moonFactory] : [])];
 const jarAbi = parseAbi(['function forwarded() view returns (uint256)']);
+const buyFeeAbi = parseAbi(['function buyFeeBps() view returns (uint256)']);
+/** A token's buy fee in bp, 0 when it has none (every Square token but the moon drop). */
+const buyFee = (token: Address) =>
+  publicClient.readContract({address: token, abi: buyFeeAbi, functionName: 'buyFeeBps'}).then(Number).catch(() => 0);
 
 const UNIVERSAL_ROUTER: Address = '0x8876789976dEcBfCbBbe364623C63652db8C0904';
 const QUOTER: Address = '0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94';
@@ -134,6 +138,7 @@ async function hydrate(token: Address, createdBlock: bigint, creator: Address, t
     ]).catch(() => [0n, 0n] as const);
     moonJarEth = f(fwd) + f(held) * priceEth;
   }
+  const buyFeeBps = hero ? await buyFee(token) : 0;
   return {
     token,
     curve: token,
@@ -157,6 +162,7 @@ async function hydrate(token: Address, createdBlock: bigint, creator: Address, t
     slowFree: Number(slowFree),
     twoRatchets: true,
     moonJarEth,
+    buyFeeBps: buyFeeBps || undefined,
     socials: {website: meta[1] || undefined},
   };
 }
@@ -244,7 +250,7 @@ export const pools = {
 
   /** Quote from Uniswap's v4 quoter, which simulates the swap against the live pool. */
   async quote(token: Address, side: 'buy' | 'sell', amount: number, account: Address) {
-    const [{result}, spot] = await Promise.all([
+    const [{result}, spot, taxBps] = await Promise.all([
       publicClient.simulateContract({
         account,
         address: QUOTER,
@@ -253,13 +259,16 @@ export const pools = {
         args: [{poolKey: keyFor(token), zeroForOne: side === 'buy', exactAmount: wei(amount), hookData: '0x'}],
       }),
       publicClient.readContract({address: P!.venue, abi: venueAbi, functionName: 'spot', args: [token]}),
+      side === 'buy' ? buyFee(token) : Promise.resolve(0),
     ]);
-    const out = f(result[0]);
+    // the pool's output; a buy fee is taken from it on the way to the buyer (the router's minimum is checked before that)
+    const poolOut = f(result[0]);
+    const out = poolOut * (1 - taxBps / 10_000);
     const price = f(spot);
     // execution price against spot, net of the pool's own fee
-    const exec = side === 'buy' ? (out ? amount / out : 0) : amount ? out / amount : 0;
+    const exec = side === 'buy' ? (poolOut ? amount / poolOut : 0) : amount ? poolOut / amount : 0;
     const gross = price ? (side === 'buy' ? exec / price - 1 : 1 - exec / price) * 100 : 0;
-    return {out, feeBps: LP_FEE / 100, taxBps: 0, snipeBps: 0, impact: Math.max(0, gross - LP_FEE / 10_000), price};
+    return {out, feeBps: LP_FEE / 100, taxBps, snipeBps: 0, impact: Math.max(0, gross - LP_FEE / 10_000), price};
   },
 };
 

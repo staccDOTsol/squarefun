@@ -112,7 +112,9 @@ export function Token({address}: {address: string}) {
   return (
     <main className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
       <p role="note" className="mb-4 border-l-2 border-brass-500 pl-3 text-[13px] leading-5 text-ink-300">
-        {l?.kind === 'pools'
+        {l?.buyFeeBps
+          ? `Every buy of this token pays ${l.buyFeeBps / 100}% into its moon jar, which buys lunar parcels drawn for whoever paid the fees; sells pay nothing. It lives in one plain Uniswap v4 pool, and the first two transfers in a block pay no reference fee on top.`
+          : l?.kind === 'pools'
           ? 'This token lives in one plain Uniswap v4 pool. Buy here or through any aggregator: the quote comes from the same pool. The first two transfers of this token in a block are free.'
           : BRAND.secondaries}{' '}
         <Link to="/how" className="text-brass-400 underline-offset-4 hover:underline">

@@ -191,7 +191,7 @@ export function TradePanel({l, onTraded}: {l: Launch; onTraded?: () => void}) {
       <dl className="num mt-4 space-y-1.5 text-[13px]">
         <Row k="You receive" v={quote ? `${num(quote.out, 4)} ${side === 'buy' ? l.symbol : 'ETH'}` : '—'} strong />
         <Row k={`Min after ${slippage}% slip`} v={quote ? `${num(minOut, 4)}` : '—'} />
-        <Row k={viaPools ? 'Pool fee' : 'Curve fee'} v={quote ? `${quote.feeBps} bp${quote.taxBps ? ` + ${quote.taxBps} bp creator` : ''}` : '—'} />
+        <Row k={viaPools ? 'Pool fee' : 'Curve fee'} v={quote ? `${quote.feeBps} bp${quote.taxBps ? ` + ${quote.taxBps} bp ${viaPools ? 'moon jar' : 'creator'}` : ''}` : '—'} />
         {quote && quote.snipeBps > 0 && <Row k="Snipe tax now" v={`${quote.snipeBps} bp`} tone="warn" />}
         <Row k="Price impact" v={quote ? pct(quote.impact, 2) : '—'} tone={quote && quote.impact > 5 ? 'warn' : undefined} />
       </dl>
@@ -209,6 +209,7 @@ export function TradePanel({l, onTraded}: {l: Launch; onTraded?: () => void}) {
       {viaPools ? (
         <>
           <p className="mt-3 text-[12px] text-ink-500">
+            {l.buyFeeBps ? `Buys pay ${l.buyFeeBps / 100}% into the moon jar, already taken out of "You receive"; sells pay nothing. ` : ''}
             This trades against the token's Uniswap v4 pool through the universal router: one transfer, so one reference. The first two transfers
             of this token in a block are free, and so are your first {l.slowFree ?? 16} trades in a week.
           </p>

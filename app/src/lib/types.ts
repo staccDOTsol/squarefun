@@ -33,6 +33,8 @@ export interface Launch {
   slowFree?: number;
   /** ETH this token's moon jar has forwarded plus what its held fees quote at (moon drops only) */
   moonJarEth?: number;
+  /** a flat fee on every buy out of the pool, on top of nothing (the higher of it and the ratchet applies); sells never pay it */
+  buyFeeBps?: number;
   /** which factory launched it */
   factory: Address;
   /** v2 tokens carry two ratchets: first two references in a block are free */
