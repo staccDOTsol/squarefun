@@ -125,7 +125,7 @@ export function Launch() {
                 : cfgErr
                   ? `Could not read the launch terms: ${cfgErr}`
                   : 'Reading the launch terms from the factory…'}{' '}
-              Every token launched here is an IERC12384 token: the square is on by construction and can never be turned off.
+              Every token launched here is an EIP-8429 token: the square is on by construction and can never be turned off.
             </p>
           </div>
 

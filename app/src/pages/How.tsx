@@ -64,6 +64,10 @@ export function How() {
           <a href={BRAND.standards.eip.url} className="text-brass-400 underline-offset-4 hover:underline" target="_blank" rel="noreferrer">
             {BRAND.standards.eip.label}
           </a>
+          , discussed on{' '}
+          <a href={BRAND.standards.eipDiscussion.url} className="text-brass-400 underline-offset-4 hover:underline" target="_blank" rel="noreferrer">
+            Ethereum Magicians
+          </a>
           . The same counter is implemented for Solana as a Token-2022 mint extension, where the mint keeps the per-slot count
           and the fee is withheld in kind:{' '}
           <a href={BRAND.standards.token2022.url} className="text-brass-400 underline-offset-4 hover:underline" target="_blank" rel="noreferrer">

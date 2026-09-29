@@ -13,7 +13,8 @@ export const BRAND = {
     github: 'https://github.com/staccDOTsol',
   },
   standards: {
-    eip: {label: 'EIP-12384', url: 'https://github.com/ethereum/EIPs/pull/12384'},
+    eip: {label: 'EIP-8429', url: 'https://github.com/ethereum/EIPs/pull/12384'},
+    eipDiscussion: {label: 'discussion', url: 'https://ethereum-magicians.org/t/eip-8429-escalating-gas-for-repeated-calls/29798'},
     token2022: {label: 'Token-2022 SlotReferenceFee', url: 'https://github.com/solana-program/token-2022/pull/1508'},
   },
 } as const;

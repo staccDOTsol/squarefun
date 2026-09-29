@@ -45,7 +45,11 @@ export function App() {
             <a href={BRAND.standards.eip.url} className="hover:text-ink-300" target="_blank" rel="noreferrer">
               {BRAND.standards.eip.label}
             </a>
-            {' · '}
+            {' ('}
+            <a href={BRAND.standards.eipDiscussion.url} className="hover:text-ink-300" target="_blank" rel="noreferrer">
+              {BRAND.standards.eipDiscussion.label}
+            </a>
+            {') · '}
             <a href={BRAND.standards.token2022.url} className="hover:text-ink-300" target="_blank" rel="noreferrer">
               {BRAND.standards.token2022.label}
             </a>
