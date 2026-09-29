@@ -72,6 +72,17 @@ export function How() {
           only stake; on {BRAND.chainName}, which has no validator set, it holds. The other half is wrapped and paid to $
           {BRAND.token} stakers. The flagship's fees arrive at the pool in kind. Nothing reaches the party being priced.
         </p>
+        <h2 className="pt-2 text-xl font-semibold text-ink-100">Pool fees on pools.xyz launches</h2>
+        <p>
+          That is the repeat-trade fee. Launches through pools.xyz also pay Uniswap's ordinary 0.25% pool fee, and it
+          splits in a way that is easy to misread. The creator gets 40% of the ETH side. The other 60% of the ETH side, and
+          all of the token side, is compounded back into the same locked position, so it deepens the pool. Nobody pockets
+          it: Uniswap takes none of it, and neither does {BRAND.name}. The split is fixed in Uniswap's fee splitter at{' '}
+          <a href={`${BRAND.explorer}/address/0xeFF166AAf189323c58dc27eD1206EB2C37FaACDf?tab=read_contract`} target="_blank" rel="noreferrer" className="text-brass-400 underline-offset-4 hover:underline">
+            0xeFF1…ACDf
+          </a>
+          ; read <code>getSplits()</code>.
+        </p>
         <h2 className="pt-2 text-xl font-semibold text-ink-100">What is not a reference</h2>
         <p>
           Buying from and selling to the curve. The curve sweeping into the pool. The hook collecting and the vault locking fees.

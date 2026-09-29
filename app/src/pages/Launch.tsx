@@ -10,6 +10,9 @@ import {useRouter} from '../lib/router';
 import {launchesV2, poolsDeployed} from '../lib/pools';
 import {useWallet} from '../lib/wallet';
 
+/** Uniswap's fee splitter behind pools.xyz instant launches: 40% of ETH-side fees to the creator, the rest compounded. */
+const FEE_SPLITTER = '0xeFF166AAf189323c58dc27eD1206EB2C37FaACDf';
+
 const empty = {name: '', symbol: '', description: '', image: '', twitter: '', telegram: '', discord: '', website: '', farcaster: '', };
 
 export function Launch() {
@@ -168,7 +171,9 @@ export function Launch() {
                 ['Opens at', 'about 2.5 ETH market cap'],
                 ['Pool fee', '0.25% per trade'],
                 ['Your share', '40% of the ETH side of pool fees'],
+                ['The other 60%', 'compounded back into the same locked pool'],
                 ['Liquidity', 'locked in Uniswap\u2019s fee splitter, permanently'],
+                ['Token-side fees', '100% compounded back into the pool'],
                 ['Dev buy', 'none: buy after launch like anyone else'],
               ].map(([k, v]) => (
                 <div key={k} className="flex items-baseline justify-between gap-3 border-b border-ink-850 pb-1.5">
@@ -177,6 +182,14 @@ export function Launch() {
                 </div>
               ))}
             </dl>
+            <p className="measure text-[12px] leading-5 text-ink-500">
+              Nobody pockets the rest: Uniswap takes none of the pool fees and neither does {BRAND.name}. The fee splitter
+              holding the position is fixed, and anyone can read its split with{' '}
+              <a href={`${BRAND.explorer}/address/${FEE_SPLITTER}?tab=read_contract`} target="_blank" rel="noreferrer" className="text-brass-400 underline-offset-4 hover:underline">
+                getSplits()
+              </a>
+              . {BRAND.name} earns only from the repeat-trade fee, which goes to stake.
+            </p>
           </fieldset>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
