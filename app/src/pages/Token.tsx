@@ -142,7 +142,11 @@ export function Token({address}: {address: string}) {
             <dl className="num ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
               <Stat k="mc" v={eth(l.marketCapEth)} />
               {l.kind !== 'pools' && <Stat k="raised" v={`${l.quoteReserve.toFixed(3)} ETH`} />}
-              <Stat k="square paid" v={`${num(l.squarePaid)} ${l.symbol}`} tone="brass" />
+              {l.moonJarEth !== undefined ? (
+                <Stat k="moon jar" v={eth(l.moonJarEth)} tone="brass" />
+              ) : (
+                <Stat k="square paid" v={`${num(l.squarePaid)} ${l.symbol}`} tone="brass" />
+              )}
               <button
                 onClick={() => {
                   navigator.clipboard?.writeText(l.token);

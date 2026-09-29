@@ -54,9 +54,18 @@ export function Board() {
   const fresh = launches ? [...launches].filter(x => x.kind === 'pools').sort((a, b) => b.createdAt - a.createdAt)[0] ?? null : null;
   const flagship = launches && ADDR.flagship ? launches.find(x => x.token.toLowerCase() === ADDR.flagship!.toLowerCase()) ?? null : null;
   // The pad's own token is pinned first. If it is also the closest to graduating, one card wears both badges.
+  const hero = launches && ADDR.hero ? launches.find(x => x.token.toLowerCase() === ADDR.hero!.token.toLowerCase()) ?? null : null;
   const features: Array<{l: Launch; badges: string[]}> = [];
-  if (flagship) features.push({l: flagship, badges: [`flagship · $${BRAND.token}`]});
-  if (fresh) features.push({l: fresh, badges: ['live on pools.xyz']});
+  // the hero goes first, then the pad's own token; a launch already featured is not repeated
+  const feature = (l: Launch | null, badge: string) => {
+    if (!l) return;
+    const same = features.find(f => f.l.token === l.token);
+    if (same) same.badges.push(badge);
+    else features.push({l, badges: [badge]});
+  };
+  feature(hero, ADDR.hero?.badge ?? 'featured');
+  feature(flagship, `flagship · $${BRAND.token}`);
+  if (features.length < 2) feature(fresh, 'live on pools.xyz');
   if (king && features.length < 2) {
     const same = features.find(f => f.l.token === king.token);
     if (same) same.badges.push('closest to graduating');
@@ -203,12 +212,19 @@ function Feature({l, badges, wide}: {l: Launch; badges: string[]; wide: boolean}
                 {l.kind === 'pools' ? 'Uniswap v4 pool' : `${l.quoteReserve.toFixed(3)} / ${l.graduationThreshold} ETH`}
               </dd>
             </div>
-            <div>
-              <dt className="text-ink-500">square paid</dt>
-              <dd className="text-brass-300">
-                {l.squarePaid.toFixed(0)} {l.symbol}
-              </dd>
-            </div>
+            {l.moonJarEth !== undefined ? (
+              <div>
+                <dt className="text-ink-500">moon jar</dt>
+                <dd className="text-brass-300">{eth(l.moonJarEth)}</dd>
+              </div>
+            ) : (
+              <div>
+                <dt className="text-ink-500">square paid</dt>
+                <dd className="text-brass-300">
+                  {l.squarePaid.toFixed(0)} {l.symbol}
+                </dd>
+              </div>
+            )}
           </dl>
         </div>
       </Link>

@@ -31,6 +31,8 @@ export interface Launch {
   kind?: 'pad' | 'pools';
   /** Pools launches: the weekly allowance this token's rule gives each wallet (16 in the first version, 6 after) */
   slowFree?: number;
+  /** ETH this token's moon jar has forwarded plus what its held fees quote at (moon drops only) */
+  moonJarEth?: number;
   /** which factory launched it */
   factory: Address;
   /** v2 tokens carry two ratchets: first two references in a block are free */

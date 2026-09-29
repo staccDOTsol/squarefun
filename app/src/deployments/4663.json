@@ -56,6 +56,13 @@
       "0x357549617ca6947f9b507Cf7274d54c8DE0a40ad"
     ],
     "tokenFactoryV2": "0x1907998C5b722C66b2941dF80567Cfc46252ac1E",
-    "deployBlockV2": 75645689
+    "deployBlockV2": 75645689,
+    "moonFactory": "0x17a28F63Ba842DED434Edf815bdc66555029A4C6"
+  },
+  "hero": {
+    "token": "0xEF1b6A24edEcE321548bAC59B9ca36232121B504",
+    "badge": "moon drop \u00b7 fees buy moon",
+    "image": "/realmoon.png",
+    "jar": "0xda0b8EF9E8f1E34217C4175f0AEf9AAEdedba8e7"
   }
 }

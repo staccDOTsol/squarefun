@@ -26,6 +26,9 @@ const TOKEN_FACTORIES: Address[] = P ? [P.tokenFactory, ...(P.tokenFactoryV2 && 
 const LAUNCH_TOKEN_FACTORY: Address | undefined = TOKEN_FACTORIES[TOKEN_FACTORIES.length - 1];
 /** Whether new launches get the second version of the rule. */
 export const launchesV2 = TOKEN_FACTORIES.length > 1;
+/** Factories whose launches are listed but never launched through: the moon drop's one-token factory. */
+const LISTED_FACTORIES: Address[] = [...TOKEN_FACTORIES, ...(P?.moonFactory && P.moonFactory !== ZERO ? [P.moonFactory] : [])];
+const jarAbi = parseAbi(['function forwarded() view returns (uint256)']);
 
 const UNIVERSAL_ROUTER: Address = '0x8876789976dEcBfCbBbe364623C63652db8C0904';
 const QUOTER: Address = '0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94';
@@ -94,7 +97,7 @@ export const isPoolsToken = (a: Address) => known.has(a.toLowerCase());
 async function createdLogs(to: bigint) {
   if (!poolsDeployed) return [];
   return getLogsChunked(
-    (a, b) => publicClient.getLogs({address: TOKEN_FACTORIES, event: factoryAbi[0], fromBlock: a, toBlock: b}),
+    (a, b) => publicClient.getLogs({address: LISTED_FACTORIES, event: factoryAbi[0], fromBlock: a, toBlock: b}),
     BigInt(P!.deployBlock),
     to,
   );
@@ -122,13 +125,22 @@ async function hydrate(token: Address, createdBlock: bigint, creator: Address, t
     publicClient.readContract({address: token, abi: tokenAbi, functionName: 'SLOW_FREE'}).catch(() => 16n),
   ]);
   const priceEth = f(spot);
+  const hero = ADDR.hero && ADDR.hero.token.toLowerCase() === token.toLowerCase() ? ADDR.hero : null;
+  let moonJarEth: number | undefined;
+  if (hero?.jar) {
+    const [fwd, held] = await Promise.all([
+      publicClient.readContract({address: hero.jar, abi: jarAbi, functionName: 'forwarded'}),
+      publicClient.readContract({address: token, abi: erc20Abi, functionName: 'balanceOf', args: [hero.jar]}),
+    ]).catch(() => [0n, 0n] as const);
+    moonJarEth = f(fwd) + f(held) * priceEth;
+  }
   return {
     token,
     curve: token,
     kind: 'pools',
     name,
     symbol,
-    image: meta[2],
+    image: meta[2] || hero?.image || '',
     description: meta[0],
     creator,
     createdAt,
@@ -144,6 +156,7 @@ async function hydrate(token: Address, createdBlock: bigint, creator: Address, t
     factory,
     slowFree: Number(slowFree),
     twoRatchets: true,
+    moonJarEth,
     socials: {website: meta[1] || undefined},
   };
 }

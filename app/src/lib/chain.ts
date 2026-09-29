@@ -16,6 +16,8 @@ export const ADDR = deployment as {
   deployBlock: number;
   /** the pad's own token launch, pinned to the board hero (zero when none) */
   flagship?: Address;
+  /** Pinned first on the board: a featured launch with its own badge, a site-side image when the token has none, and its moon jar */
+  hero?: {token: Address; badge: string; image?: string; jar?: Address};
   factory: Address;
   /** the $SQUARE staking pool (SquareStake) */
   sink: Address;
@@ -35,7 +37,7 @@ export const ADDR = deployment as {
   /** WETH9 on Robinhood: the staked half arrives at the pool wrapped */
   weth?: Address;
   /** Launches through Uniswap's Liquidity Launcher (pools.xyz) with the Square token factory */
-  pools?: {launcher: Address; instantStrategy: Address; tokenFactory: Address; settler: Address; venue: Address; deployBlock: number; tokens?: Address[]; tokenFactoryV2?: Address; deployBlockV2?: number};
+  pools?: {launcher: Address; instantStrategy: Address; tokenFactory: Address; settler: Address; venue: Address; deployBlock: number; tokens?: Address[]; tokenFactoryV2?: Address; deployBlockV2?: number; moonFactory?: Address};
   /** MigrateFactory: the pooper scooper. Zero until deployed. */
   migrateFactory?: Address;
   /** ScoopBatch: a whole wallet in one transaction */
