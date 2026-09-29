@@ -6,7 +6,8 @@ import {TradePanel} from '../components/TradePanel';
 import {Button} from '../components/ui/Button';
 import {Badge, Empty, ErrorBox, Progress, Skeleton, toast} from '../components/ui/Bits';
 import {BRAND} from '../lib/brand';
-import {robinhood} from '../lib/chain';
+import {ADDR, robinhood} from '../lib/chain';
+import {draws as loadDraws, type Draw} from '../lib/moon';
 import {data} from '../lib/data';
 import {useLive} from '../lib/live';
 import {ago, eth, num, pct, short} from '../lib/format';
@@ -194,6 +195,8 @@ export function Token({address}: {address: string}) {
         <div className="min-w-0 space-y-4">
           {trades ? <CurveChart trades={trades} symbol={l?.symbol ?? ''} /> : <Skeleton className="h-72 w-full" />}
 
+          {l && ADDR.hero?.jar && ADDR.hero.token.toLowerCase() === l.token.toLowerCase() && <MoonDraws jar={ADDR.hero.jar} from={l.createdBlock} />}
+
           {l && (
             <section className="rounded-lg border border-ink-800 bg-ink-900 p-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -369,5 +372,70 @@ function RefsTable({refs, symbol, explorer}: {refs: Reference[] | null; symbol: 
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** Every moon drop, re-derived here from drand and the chain; see lib/moon.ts. */
+function MoonDraws({jar, from}: {jar: Address; from: bigint}) {
+  const [list, setList] = useState<Draw[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    loadDraws(jar, from).then(setList).catch(e => setErr(e instanceof Error ? e.message : 'Could not read the draws'));
+  }, [jar, from]);
+  const explorer = robinhood.blockExplorers.default.url;
+  const mark = (ok: boolean | null) => (ok === null ? <span className="text-ink-500">?</span> : ok ? <span className="text-up-400">✓</span> : <span className="text-down-400">✗</span>);
+  return (
+    <section className="rounded-lg border border-ink-800 bg-ink-900 p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-[13px] font-medium text-ink-300">Moon draws</p>
+        <p className="text-[12px] text-ink-500">checked in your browser against drand and the chain</p>
+      </div>
+      {err ? (
+        <p className="mt-2 text-[13px] text-down-400">{err}</p>
+      ) : list === null ? (
+        <Skeleton className="mt-3 h-16 w-full" />
+      ) : list.length === 0 ? (
+        <p className="mt-2 text-[13px] text-ink-400">No draws yet. Each parcel the jar pays for closes a round of fee tickets and draws it.</p>
+      ) : (
+        <ul className="mt-3 space-y-3">
+          {list.map(d => (
+            <li key={d.id} className="rounded-md border border-ink-800 p-3 text-[13px]">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="text-ink-100">
+                  drop #{d.id} · {d.parcel}
+                </span>
+                <a href={`${explorer}/address/${d.winner}`} target="_blank" rel="noreferrer" className="num text-brass-300 hover:underline">
+                  {short(d.winner)}
+                </a>
+              </div>
+              <p className="num mt-1 text-[12px] text-ink-500">
+                round {d.round} · held {d.tickets ? ((Number(d.winnerTickets) / Number(d.tickets)) * 100).toFixed(1) : '0'}% of the tickets · drand round{' '}
+                <a
+                  href={`https://api.drand.sh/04f1e9062b8a81f848fded9c12306733282b2727ecced50032187751166ec8c3/public/${d.drandRound}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-brass-400 hover:underline">
+                  {d.drandRound}
+                </a>{' '}
+                ·{' '}
+                <a href={`${explorer}/tx/${d.requestTx}`} target="_blank" rel="noreferrer" className="text-brass-400 hover:underline">
+                  request
+                </a>{' '}
+                ·{' '}
+                <a href={`${explorer}/tx/${d.fulfillTx}`} target="_blank" rel="noreferrer" className="text-brass-400 hover:underline">
+                  draw
+                </a>
+              </p>
+              <p className="num mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-ink-400">
+                <span>{mark(d.checks.drand)} drand published this round</span>
+                <span>{mark(d.checks.stored)} router stored the same</span>
+                <span>{mark(d.checks.word)} word recomputes</span>
+                <span>{mark(d.checks.winner)} word lands on the winner's ticket</span>
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
