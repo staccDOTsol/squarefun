@@ -44,5 +44,16 @@
       "factory": "0x63EBBDAB4088d2B0866015F9653D3bE69Cc8712F",
       "note": "v3, pre-replay constants, zero launches, never listed"
     }
-  ]
+  ],
+  "pools": {
+    "launcher": "0x0000FffFBE8efE702c8703aE3477FF5dE3d319C0",
+    "instantStrategy": "0x23f8209572b4a1C2AD88A42749E830791Fb027f1",
+    "tokenFactory": "0xC6783CA88d6936c12425A2f0A0F0ce10d1ceb1FD",
+    "settler": "0x45866DE9E1b1dFcCE288454D14F23E15ef76B77A",
+    "venue": "0x25539ae27c7E4ABeD9FB7Ac5a749089a6579FD5F",
+    "deployBlock": 75598921,
+    "tokens": [
+      "0x357549617ca6947f9b507Cf7274d54c8DE0a40ad"
+    ]
+  }
 }
