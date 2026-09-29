@@ -29,6 +29,8 @@ export interface Launch {
   tradeCount: number;
   /** 'pools': launched through Uniswap's Liquidity Launcher, straight into a v4 pool, no curve */
   kind?: 'pad' | 'pools';
+  /** Pools launches: the weekly allowance this token's rule gives each wallet (16 in the first version, 6 after) */
+  slowFree?: number;
   /** which factory launched it */
   factory: Address;
   /** v2 tokens carry two ratchets: first two references in a block are free */

@@ -7,7 +7,7 @@ import {ReferenceMeter} from '../components/ReferenceMeter';
 import {BRAND} from '../lib/brand';
 import {data, tx} from '../lib/data';
 import {useRouter} from '../lib/router';
-import {poolsDeployed} from '../lib/pools';
+import {launchesV2, poolsDeployed} from '../lib/pools';
 import {useWallet} from '../lib/wallet';
 
 const empty = {name: '', symbol: '', description: '', image: '', twitter: '', telegram: '', discord: '', website: '', farcaster: '', };
@@ -208,8 +208,8 @@ export function Launch() {
           <div className="rounded-lg border border-ink-800 bg-ink-900 p-4 text-[13px]">
             <p className="font-medium text-ink-200">What your token enforces, forever</p>
             <ul className="mt-2 space-y-1.5 text-ink-400">
-              <li className="flex gap-2"><Badge tone="brass">1</Badge> The first two transfers in a block are free, and a wallet's first sixteen in a week.</li>
-              <li className="flex gap-2"><Badge tone="brass">2</Badge> After that the k-th pays 10 bp × k², in kind, capped at 100%.</li>
+              <li className="flex gap-2"><Badge tone="brass">1</Badge> The first two transfers of the token in any block are free, and each wallet's first {launchesV2 ? 'six' : 'sixteen'} trades in a week.</li>
+              <li className="flex gap-2"><Badge tone="brass">2</Badge> {launchesV2 ? 'After that the k-th transfer in the block pays 10 bp × k², whoever makes it, capped at 100%.' : 'After that a wallet on its own third transfer in a block pays 10 bp × k², capped at 100%.'}</li>
               <li className="flex gap-2"><Badge tone="brass">3</Badge> Fees are sold for ETH: half to a sink nobody controls, half to ${BRAND.token} stakers. Nothing is burned.</li>
               <li className="flex gap-2"><Badge tone="brass">4</Badge> The launch transaction itself is never a reference.</li>
             </ul>

@@ -20,6 +20,12 @@ import type {Launch, Reference, Trade} from './types';
 
 const P = ADDR.pools;
 export const poolsDeployed = !!P && P.tokenFactory !== ZERO;
+/** Every Square token factory whose launches the site shows, oldest first. */
+const TOKEN_FACTORIES: Address[] = P ? [P.tokenFactory, ...(P.tokenFactoryV2 && P.tokenFactoryV2 !== ZERO ? [P.tokenFactoryV2] : [])] : [];
+/** Where new launches go: the newest factory. The second version prices every third transfer in a block and allows six trades a week. */
+const LAUNCH_TOKEN_FACTORY: Address | undefined = TOKEN_FACTORIES[TOKEN_FACTORIES.length - 1];
+/** Whether new launches get the second version of the rule. */
+export const launchesV2 = TOKEN_FACTORIES.length > 1;
 
 const UNIVERSAL_ROUTER: Address = '0x8876789976dEcBfCbBbe364623C63652db8C0904';
 const QUOTER: Address = '0x8Dc178eFB8111BB0973Dd9d722ebeFF267c98F94';
@@ -51,6 +57,7 @@ const tokenAbi = parseAbi([
   'function referencesThisBlock() view returns (uint256)',
   'function metadata() view returns (string description, string website, string image, uint256 xProofTweetId)',
   'function birthBlock() view returns (uint64)',
+  'function SLOW_FREE() view returns (uint256)',
 ]);
 const launcherAbi = parseAbi([
   'function createToken(address factory, string name, string symbol, uint8 decimals, uint128 initialSupply, address recipient, bytes tokenData) returns (address)',
@@ -87,7 +94,7 @@ export const isPoolsToken = (a: Address) => known.has(a.toLowerCase());
 async function createdLogs(to: bigint) {
   if (!poolsDeployed) return [];
   return getLogsChunked(
-    (a, b) => publicClient.getLogs({address: P!.tokenFactory, event: factoryAbi[0], fromBlock: a, toBlock: b}),
+    (a, b) => publicClient.getLogs({address: TOKEN_FACTORIES, event: factoryAbi[0], fromBlock: a, toBlock: b}),
     BigInt(P!.deployBlock),
     to,
   );
@@ -101,10 +108,10 @@ async function swapLogs(token: Address, from: bigint, to: bigint) {
   );
 }
 
-async function hydrate(token: Address, createdBlock: bigint, creator: Address, tradeCount: number): Promise<Launch> {
+async function hydrate(token: Address, createdBlock: bigint, creator: Address, tradeCount: number, factory: Address = P!.tokenFactory): Promise<Launch> {
   known.add(token.toLowerCase());
   const to = await publicClient.getBlockNumber();
-  const [name, symbol, refs, meta, spot, createdAt, feeLogs] = await Promise.all([
+  const [name, symbol, refs, meta, spot, createdAt, feeLogs, slowFree] = await Promise.all([
     publicClient.readContract({address: token, abi: tokenAbi, functionName: 'name'}),
     publicClient.readContract({address: token, abi: tokenAbi, functionName: 'symbol'}),
     publicClient.readContract({address: token, abi: tokenAbi, functionName: 'referencesThisBlock'}),
@@ -112,6 +119,7 @@ async function hydrate(token: Address, createdBlock: bigint, creator: Address, t
     publicClient.readContract({address: P!.venue, abi: venueAbi, functionName: 'spot', args: [token]}),
     blockTimestamp(createdBlock),
     getLogsChunked((a, b) => publicClient.getLogs({address: token, event: tokenAbi[0], fromBlock: a, toBlock: b}), createdBlock, to),
+    publicClient.readContract({address: token, abi: tokenAbi, functionName: 'SLOW_FREE'}).catch(() => 16n),
   ]);
   const priceEth = f(spot);
   return {
@@ -133,7 +141,8 @@ async function hydrate(token: Address, createdBlock: bigint, creator: Address, t
     referencesThisBlock: Number(refs),
     squarePaid: feeLogs.reduce((s, l) => s + f(l.args.fee ?? 0n), 0),
     tradeCount,
-    factory: P!.tokenFactory,
+    factory,
+    slowFree: Number(slowFree),
     twoRatchets: true,
     socials: {website: meta[1] || undefined},
   };
@@ -151,7 +160,7 @@ export const pools = {
           publicClient.getTransaction({hash: l.transactionHash}),
           swapLogs(token, l.blockNumber, to).catch(() => []),
         ]);
-        return hydrate(token, l.blockNumber, t.from, swaps.length);
+        return hydrate(token, l.blockNumber, t.from, swaps.length, l.address as Address);
       }),
     );
   },
@@ -165,11 +174,11 @@ export const pools = {
       publicClient.getTransaction({hash: mine.transactionHash}),
       swapLogs(token, mine.blockNumber, to).catch(() => []),
     ]);
-    return hydrate(mine.args.tokenAddress!, mine.blockNumber, t.from, swaps.length);
+    return hydrate(mine.args.tokenAddress!, mine.blockNumber, t.from, swaps.length, mine.address as Address);
   },
 
   refresh(l: Launch, tradeCount = l.tradeCount): Promise<Launch> {
-    return hydrate(l.token, l.createdBlock, l.creator, tradeCount);
+    return hydrate(l.token, l.createdBlock, l.creator, tradeCount, l.factory);
   },
 
   /** Pool swaps as trades. ETH is currency0: a negative amount0 is ETH paid in, so a buy. */
@@ -345,14 +354,14 @@ export const poolsTx = {
     const tokenData = encodeAbiParameters([metadataType], [{description: p.description, website: p.website, image: p.image, xProofTweetId: 0n}]);
     const graffiti = await publicClient.readContract({address: P!.launcher, abi: launcherAbi, functionName: 'getGraffiti', args: [account]});
     const token = await publicClient.readContract({
-      address: P!.tokenFactory,
+      address: LAUNCH_TOKEN_FACTORY!,
       abi: factoryAbi,
       functionName: 'getTokenAddress',
       args: [p.name, p.symbol, POOLS_SUPPLY, P!.launcher, tokenData, P!.launcher, graffiti],
     });
     if ((await publicClient.getCode({address: token})) !== undefined) throw new Error('You already launched a token with this name and ticker');
     const calls = [
-      encodeFunctionData({abi: launcherAbi, functionName: 'createToken', args: [P!.tokenFactory, p.name, p.symbol, 18, POOLS_SUPPLY, P!.launcher, tokenData]}),
+      encodeFunctionData({abi: launcherAbi, functionName: 'createToken', args: [LAUNCH_TOKEN_FACTORY!, p.name, p.symbol, 18, POOLS_SUPPLY, P!.launcher, tokenData]}),
       encodeFunctionData({
         abi: launcherAbi,
         functionName: 'distributeToken',

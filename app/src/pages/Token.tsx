@@ -113,7 +113,7 @@ export function Token({address}: {address: string}) {
     <main className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
       <p role="note" className="mb-4 border-l-2 border-brass-500 pl-3 text-[13px] leading-5 text-ink-300">
         {l?.kind === 'pools'
-          ? 'This token lives in one plain Uniswap v4 pool. Buy here or through any aggregator: the quote comes from the same pool. Your first two transfers in a block are free.'
+          ? 'This token lives in one plain Uniswap v4 pool. Buy here or through any aggregator: the quote comes from the same pool. The first two transfers of this token in a block are free.'
           : BRAND.secondaries}{' '}
         <Link to="/how" className="text-brass-400 underline-offset-4 hover:underline">
           Why

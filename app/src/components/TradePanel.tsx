@@ -209,8 +209,8 @@ export function TradePanel({l, onTraded}: {l: Launch; onTraded?: () => void}) {
       {viaPools ? (
         <>
           <p className="mt-3 text-[12px] text-ink-500">
-            This trades against the token's Uniswap v4 pool through the universal router: one transfer, so one reference. Your first two in
-            a block are free and so are your first sixteen in a week.
+            This trades against the token's Uniswap v4 pool through the universal router: one transfer, so one reference. The first two transfers
+            of this token in a block are free, and so are your first {l.slowFree ?? 16} trades in a week.
           </p>
           <p className="mt-1 text-[11px] text-ink-600">
             After that a buy arrives short by the fee, and a sell fails, because the pool is owed more than reaches it. Selling asks for two
