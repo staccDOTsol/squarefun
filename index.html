@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>$SQUARE — escalating fees for repetition</title>
+<meta name="description" content="The focus is still real — mainnet-beta and mainnet standards. Escalating fees for repeated references: machines pay on every leg after their first swap, people pay nothing.">
+<meta property="og:title" content="$SQUARE — the focus is still real">
+<meta property="og:description" content="Machines that catalogue every launch pay in proportion to their own repetition. A person making one transfer pays nothing.">
+<meta property="og:url" content="https://deck.squarefun.xyz">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230c0d0a'/%3E%3Crect x='7' y='7' width='18' height='18' fill='%23c8f04f'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: oklch(0.145 0.008 110);
+    --bg-raise: oklch(0.185 0.010 110);
+    --ink: oklch(0.93 0.008 110);
+    --ink-dim: oklch(0.68 0.010 110);
+    --ink-faint: oklch(0.50 0.010 110);
+    --line: oklch(0.26 0.012 110);
+    --accent: oklch(0.87 0.21 122);
+    --accent-ink: oklch(0.20 0.04 122);
+    --serif: "Instrument Serif", Georgia, serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: var(--serif); font-size: 21px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--accent); color: var(--accent-ink); }
+  a { color: inherit; }
+  .mono { font-family: var(--mono); }
+
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 24px; }
+
+  header {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 26px 0 0; font-family: var(--mono); font-size: 13px;
+  }
+  .mark { display: flex; gap: 10px; align-items: baseline; text-decoration: none; }
+  .mark .sq { width: 11px; height: 11px; background: var(--accent); display: inline-block; transform: translateY(1px); }
+  header nav { display: flex; gap: 26px; }
+  header nav a { color: var(--ink-dim); text-decoration: none; border-bottom: 1px solid transparent; transition: color .15s, border-color .15s; }
+  header nav a:hover, header nav a:focus-visible { color: var(--ink); border-bottom-color: var(--accent); }
+  header nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 0; }
+
+  /* hero — asymmetric: statement left, evidence right */
+  .hero { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 56px; padding: 88px 0 72px; align-items: start; }
+  .hero h1 { font-size: clamp(64px, 10vw, 118px); line-height: 0.95; font-weight: 400; letter-spacing: -0.015em; }
+  .hero h1 em { font-style: italic; color: var(--accent); }
+  .hero .lede { margin-top: 30px; font-size: 26px; line-height: 1.45; max-width: 24ch; }
+  .hero .lede strong { font-weight: 400; color: var(--accent); }
+  .hero .sub { margin-top: 18px; color: var(--ink-dim); font-size: 19px; max-width: 42ch; }
+
+  .kicker { font-family: var(--mono); font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 22px; }
+
+  /* the receipt */
+  .receipt { border: 1px solid var(--line); background: var(--bg-raise); font-family: var(--mono); font-size: 13.5px; }
+  .receipt h2 { font-family: var(--mono); font-weight: 500; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; padding: 14px 18px; border-bottom: 1px solid var(--line); color: var(--ink-dim); }
+  .receipt dl { display: grid; }
+  .receipt .row { display: flex; justify-content: space-between; gap: 16px; padding: 11px 18px; border-bottom: 1px solid var(--line); transition: background .15s; }
+  .receipt .row:last-child { border-bottom: 0; }
+  .receipt .row:hover { background: oklch(0.22 0.012 110); }
+  .receipt dt { color: var(--ink-dim); }
+  .receipt dd { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .receipt dd.hot { color: var(--accent); }
+  .receipt .note { padding: 12px 18px; color: var(--ink-faint); font-size: 12px; line-height: 1.55; border-top: 1px solid var(--line); }
+
+  section { padding: 76px 0; border-top: 1px solid var(--line); }
+  h2.big { font-size: clamp(34px, 4.5vw, 52px); font-weight: 400; line-height: 1.1; max-width: 22ch; }
+  h2.big em { font-style: italic; color: var(--accent); }
+  .prose { max-width: 62ch; color: var(--ink-dim); font-size: 20px; line-height: 1.6; margin-top: 24px; }
+  .prose b { font-weight: 400; color: var(--ink); }
+
+  /* two ratchets — rows, not tiles */
+  .ratchets { margin-top: 44px; border: 1px solid var(--line); }
+  .ratchet { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 0; border-bottom: 1px solid var(--line); }
+  .ratchet:last-child { border-bottom: 0; }
+  .ratchet .head { padding: 22px 24px; font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); background: var(--bg-raise); border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+  .ratchet .head .formula { font-size: 20px; letter-spacing: 0; text-transform: none; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .ratchet .body { padding: 22px 24px; color: var(--ink-dim); font-size: 18.5px; line-height: 1.6; max-width: 58ch; }
+  .ratchet .body b { font-weight: 400; color: var(--ink); }
+
+  .fineprint { margin-top: 26px; font-family: var(--mono); font-size: 13px; color: var(--ink-faint); line-height: 1.8; max-width: 72ch; }
+  .fineprint b { color: var(--ink-dim); font-weight: 500; }
+
+  /* k table */
+  .ktable { margin-top: 40px; display: flex; flex-wrap: wrap; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+  .kcell { background: var(--bg); padding: 16px 20px; flex: 1 1 120px; font-family: var(--mono); transition: background .15s; }
+  .kcell:hover { background: var(--bg-raise); }
+  .kcell .k { font-size: 12px; color: var(--ink-faint); }
+  .kcell .v { font-size: 22px; color: var(--accent); margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+  /* demos */
+  .demos { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; margin-top: 44px; }
+  .demo h3 { font-family: var(--mono); font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 14px; }
+  .demo .name { font-size: 34px; line-height: 1.15; }
+  .demo .name em { font-style: italic; }
+  .demo p { margin-top: 14px; color: var(--ink-dim); font-size: 18.5px; line-height: 1.6; max-width: 46ch; }
+  .demo p b { font-weight: 400; color: var(--ink); }
+  .demo.crekk .name em { color: var(--accent); }
+
+  /* ctas */
+  .ctas { display: flex; flex-direction: column; gap: 14px; margin-top: 48px; max-width: 560px; }
+  .cta { display: flex; justify-content: space-between; align-items: center; gap: 20px; text-decoration: none; padding: 20px 24px; border: 1px solid var(--line); font-family: var(--mono); font-size: 15px; transition: border-color .15s, background .15s, transform .15s; }
+  .cta .n { color: var(--ink-faint); }
+  .cta .go { color: var(--ink-dim); white-space: nowrap; transition: color .15s, transform .15s; }
+  .cta:hover, .cta:focus-visible { border-color: var(--accent); background: var(--bg-raise); }
+  .cta:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cta:hover .go, .cta:focus-visible .go { color: var(--accent); transform: translateX(3px); }
+  .cta:active { transform: translateY(1px); }
+  .cta.primary { border-color: var(--accent); background: var(--bg-raise); }
+  .cta.primary .t { color: var(--accent); }
+  .cta.soon { cursor: default; }
+  .cta.soon .t, .cta.soon .go { color: var(--ink-faint); }
+  .cta.soon .go::after { content: "— soon"; }
+  .cta .t b { font-weight: 500; }
+
+  footer { border-top: 1px solid var(--line); padding: 44px 0 64px; font-family: var(--mono); font-size: 13px; color: var(--ink-faint); display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+  footer a { color: var(--ink-dim); text-decoration: none; border-bottom: 1px solid var(--line); transition: color .15s, border-color .15s; }
+  footer a:hover, footer a:focus-visible { color: var(--accent); border-bottom-color: var(--accent); }
+  footer a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+
+  @media (max-width: 860px) {
+    .hero { grid-template-columns: 1fr; gap: 40px; padding: 56px 0 48px; }
+    .demos { grid-template-columns: 1fr; gap: 40px; }
+    .ratchet { grid-template-columns: 1fr; }
+    .ratchet .head { border-right: 0; border-bottom: 1px solid var(--line); }
+    header nav { gap: 16px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .reveal { opacity: 1; transform: none; transition: none; }
+    .cta, .cta .go, .receipt .row, .kcell { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <a class="mark" href="/"><span class="sq"></span>squarefun.xyz</a>
+    <nav>
+      <a href="#extension">the extension</a>
+      <a href="#eip">the eip</a>
+      <a href="#demos">demos</a>
+      <a href="#bridge">the bridge</a>
+      <a href="#why">why crekk</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <div>
+      <p class="kicker">the focus is still real — mainnet-beta and mainnet standards</p>
+      <h1>$SQUARE<br><em>fees for<br>repetition.</em></h1>
+      <p class="lede">the machine that catalogues every launch pays on <strong>every leg after its first swap.</strong> a person making one transfer pays nothing.</p>
+      <p class="sub">A per-mint extension for Token-2022, and its twin core EIP for Ethereum. Same shape: reference counters, two quadratic ratchets, the larger one wins.</p>
+    </div>
+    <aside class="receipt reveal" aria-label="replay evidence">
+      <h2>replayed, not imagined</h2>
+      <dl>
+        <div class="row"><dt>launches walked</dt><dd>65</dd></div>
+        <div class="row"><dt>transfers watched</dt><dd>45,728</dd></div>
+        <div class="row"><dt>serial / heavy wallets</dt><dd>198 <span style="color:var(--ink-faint)">vs 2,911</span></dd></div>
+        <div class="row"><dt>machine pays, of its volume</dt><dd class="hot">6.3%</dd></div>
+        <div class="row"><dt>everyone else pays</dt><dd>0.19%</dd></div>
+        <div class="row"><dt>their transfers touched</dt><dd>1 in 22</dd></div>
+      </dl>
+      <p class="note">two days of one extraction operator on robinhood chain. the earlier global-only draft charged everyone 0.53% and touched far more — the bystander rules below are what fix that.</p>
+    </aside>
+  </div>
+
+  <section id="extension">
+    <p class="kicker">first — solana, token-2022</p>
+    <h2 class="big">SlotReferenceFee, a mint extension that prices <em>repetition</em>.</h2>
+    <p class="prose">The k-th transfer of a mint inside one slot pays an escalating fee, so pools spammed, ladders quoted, liquidity added and pulled around every fill — <b>the catalogue pays in proportion to its own repetition.</b> A person making one transfer pays nothing. In the token program, not a transfer hook, because a hook cannot see every transfer of a mint and cannot be made mandatory.</p>
+
+    <div class="ratchets">
+      <div class="ratchet">
+        <div class="head">fast · per slot · global<span class="formula">floor · n² bp</span></div>
+        <div class="body">the mint's n-th transfer in a slot, whoever made it, pays <b>floor · n²</b> bp after the free ones, capped — but only charged to an actor already on its <b>third own reference</b> in the slot. a bystander's single swap in a busy slot pays nothing.</div>
+      </div>
+      <div class="ratchet">
+        <div class="head">slow · per actor · per week<span class="formula">slow_floor · m² bp</span></div>
+        <div class="body">the same actor's m-th reference across a week of slots pays <b>slow_floor · m²</b> after sixteen free. a wallet that keeps coming back over hours and days pays more each time; one that trades a dozen times a week pays nothing. <b>nobody can raise anyone else's count.</b></div>
+      </div>
+    </div>
+
+    <div class="fineprint">
+      <b>the actor is the quieter side of the transfer.</b> a transfer counts on both token accounts whose balance it changes and is priced on the lower of their two ordinals — a pool vault never pays for being walked. <b>dust cannot raise anyone's ordinal:</b> transfers under min_reference_amount never move the counter.
+    </div>
+
+    <div class="ktable" aria-label="escalation">
+      <div class="kcell"><div class="k">3rd reference</div><div class="v">9×</div></div>
+      <div class="kcell"><div class="k">5th</div><div class="v">25×</div></div>
+      <div class="kcell"><div class="k">10th</div><div class="v">100×</div></div>
+      <div class="kcell"><div class="k">20th</div><div class="v">400×</div></div>
+      <div class="kcell"><div class="k">37th</div><div class="v">1,369×</div></div>
+      <div class="kcell"><div class="k">44th</div><div class="v">1,936×</div></div>
+    </div>
+  </section>
+
+  <section id="eip">
+    <p class="kicker">then — ethereum, core</p>
+    <h2 class="big">The same shape, as a <em>core EIP</em>.</h2>
+    <p class="prose">A per-address reference counter kept by the execution client, outside world state — the same shape as the EIP-2929 access sets. Any account may enroll itself once, irrevocably, through a system registry. Every state-changing call into an enrolled address is then priced on two ratchets and pays the larger: <b>k-th call in the block, global, and m-th call by the same origin across a week.</b> The constants come from the replay above, not from a prior.</p>
+  </section>
+
+  <section id="demos">
+    <p class="kicker">demos</p>
+    <h2 class="big">One idea, two <em>instruments</em>.</h2>
+    <div class="demos">
+      <div class="demo">
+        <h3>evm</h3>
+        <p class="name">the demo is <em>$SQUARE</em>.</p>
+        <p>Deployed where the EIP's enrolled registry can be walked for real: same two ratchets, real fees, real wallets, real machines paying them. <b>Watch the receipts, not the whitepaper.</b></p>
+      </div>
+      <div class="demo crekk">
+        <h3>solana</h3>
+        <p class="name">the violent demo is <em>solana on crekk</em>.</p>
+        <p>The whole chain prices repetition: the k-th write to an account pays <b>5000·k²</b> lamports, every CU and heap ceiling lifted, MEV-less by construction. Not a token extension — <b>the base fee itself.</b> Soon on pump.</p>
+      </div>
+    </div>
+
+    <div class="ctas">
+      <a class="cta primary" href="https://github.com/solana-program/token-2022/pull/1508">
+        <span class="t"><span class="n">01 / </span><b>+1 the Token-2022 extension</b> — SlotReferenceFee</span>
+        <span class="go">solana-program/token-2022#1508 →</span>
+      </a>
+      <a class="cta" href="https://github.com/ethereum/EIPs/pull/12384">
+        <span class="t"><span class="n">02 / </span><b>+1 the Ethereum EIP</b> — escalating gas for repeated calls</span>
+        <span class="go">ethereum/EIPs#12384 →</span>
+      </a>
+      <span class="cta soon">
+        <span class="t"><span class="n">03 / </span><b>$CREKK on pump</b> — solana on crekk</span>
+        <span class="go"></span>
+      </span>
+    </div>
+  </section>
+
+  <section id="bridge">
+    <p class="kicker">the bridge — one border, one price</p>
+    <h2 class="big">$CREKK is the only thing that <em>crosses</em>.</h2>
+    <p class="prose">A share vault, the shape of ERC-4626. <b>R</b> = mainnet $CREKK in the vault — every deposit's lock-up plus every fee kept. <b>S</b> = every crekk-side $CREKK, mirrored or bridge-minted, after every burn. <b>The rate R/S starts near zero and only goes up: the vault seeds itself from traffic.</b> A 1% fee on both mint and redeem, taken in mainnet $CREKK, stays in the vault — every crossing is a donation to everyone holding.</p>
+
+    <div class="ratchets">
+      <div class="ratchet">
+        <div class="head">deposit x on mainnet<span class="formula">mint 0.99x · S/R</span></div>
+        <div class="body">you lock real mainnet $CREKK, you receive crekk-side at the rate, less the fee. <b>the rate is unchanged</b> — the vault is never over- or under-collateralized; total claims are always exactly R.</div>
+      </div>
+      <div class="ratchet">
+        <div class="head">redeem y on crekk<span class="formula">release 0.99 · y · R/S</span></div>
+        <div class="body">burn crekk-side, unlock mainnet at the rate, less the fee. <b>the fee stays in R</b> — so every exit raises the rate for the people who stay. a rush to the door rewards the people still in it: there is no bank-run advantage, everyone redeems at the same R/S.</div>
+      </div>
+      <div class="ratchet">
+        <div class="head">buyback-and-burn b<span class="formula">S → S − b</span></div>
+        <div class="body">crekk's fee streams buy crekk-side $CREKK — mirrored float or minted, it's all S — and burn it from total supply. <b>the rate rises to R/(S−b): burn fraction f of supply and the rate multiplies by 1/(1−f)</b>, the ratio from initial, reflected in every mint and redeem. the buybacks run through crekk's own pools, whose fees route back into the buyback. the burn pays for itself.</div>
+      </div>
+    </div>
+
+    <div class="fineprint">
+      <b>the band.</b> the crekk-side price sits within ~1% of R/S — beyond that, mint-and-sell or buy-and-redeem pays. a round trip costs ~2%: the k² fee at the border. <b>two-sided deflation:</b> bridging in locks mainnet float, buybacks burn crekk float — use the chain and both supplies shrink. <b>what can leave is capped:</b> snapshot assets, stables and LSTs are internal value; they exit only by being traded into $CREKK and redeemed. the most that can ever leave is R. invented value is still value — inside.
+    </div>
+  </section>
+
+  <section id="why">
+    <p class="kicker">why use solana on crekk</p>
+    <h2 class="big">Your value is already <em>mirrored</em>.</h2>
+    <div class="ratchets">
+      <div class="ratchet">
+        <div class="head">your value is mirrored</div>
+        <div class="body">every mainnet-beta account exists on crekk — same keys, same balances, same pools, same programs. <b>your wallet already works; nothing to bridge, nothing to buy.</b> spending there never touches your mainnet funds.</div>
+      </div>
+      <div class="ratchet">
+        <div class="head">mev-less by construction</div>
+        <div class="body">the sandwich is a walk — attack, victim, backrun on the same pool. the k-th write pays <b>5000·k²</b>, so the machine making the legs of a sandwich pays 9× on its last leg. <b>a person making one trade pays nothing.</b> no priority-fee auction either — compute isn't scarce, so there's nothing to bid for.</div>
+      </div>
+      <div class="ratchet">
+        <div class="head">no ceilings</div>
+        <div class="body">CU, heap, block limits — lifted. the app that cannot exist on mainnet-beta — <b>a language model inside a transaction</b> — is a normal friday on crekk.</div>
+      </div>
+    </div>
+    <div class="fineprint">and the whole mirror exits to real mainnet value through the vault above, at R/S. forked from mainnet-beta at a documented slot — stake rewritten to the chain's own validators, on-curve mint authorities frozen so nobody prints inside, PDAs untouched so LSTs live.</div>
+  </section>
+
+  <footer>
+    <span>the explorer · the brave fork · downloads — land here eventually</span>
+    <span><a href="https://github.com/solana-program/token-2022/pull/1508">extension</a> · <a href="https://github.com/ethereum/EIPs/pull/12384">eip</a> · <a href="https://x.com/STACCoverflow">staccoverflow</a></span>
+  </footer>
+
+</div>
+<script>
+  (function () {
+    var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) return;
+    var els = document.querySelectorAll(".receipt, section > *");
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.12 });
+    els.forEach(function (el, i) {
+      el.classList.add("reveal");
+      el.style.transitionDelay = Math.min(i * 40, 240) + "ms";
+      io.observe(el);
+    });
+  })();
+</script>
+</body>
+</html>
