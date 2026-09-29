@@ -34,6 +34,8 @@ export const ADDR = deployment as {
   squareVenue?: Address;
   /** WETH9 on Robinhood: the staked half arrives at the pool wrapped */
   weth?: Address;
+  /** Launches through Uniswap's Liquidity Launcher (pools.xyz) with the Square token factory */
+  pools?: {launcher: Address; instantStrategy: Address; tokenFactory: Address; settler: Address; venue: Address; deployBlock: number; tokens?: Address[]};
   /** MigrateFactory: the pooper scooper. Zero until deployed. */
   migrateFactory?: Address;
   /** ScoopBatch: a whole wallet in one transaction */

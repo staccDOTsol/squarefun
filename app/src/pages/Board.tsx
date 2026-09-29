@@ -50,11 +50,14 @@ export function Board() {
   }, [launches, q, feed, sort]);
 
   const king = launches ? [...launches].filter(x => x.phase === 'curve').sort((a, b) => b.quoteReserve - a.quoteReserve)[0] ?? null : null;
+  // the newest launch made through Pools, which is where launches go now
+  const fresh = launches ? [...launches].filter(x => x.kind === 'pools').sort((a, b) => b.createdAt - a.createdAt)[0] ?? null : null;
   const flagship = launches && ADDR.flagship ? launches.find(x => x.token.toLowerCase() === ADDR.flagship!.toLowerCase()) ?? null : null;
   // The pad's own token is pinned first. If it is also the closest to graduating, one card wears both badges.
   const features: Array<{l: Launch; badges: string[]}> = [];
   if (flagship) features.push({l: flagship, badges: [`flagship · $${BRAND.token}`]});
-  if (king) {
+  if (fresh) features.push({l: fresh, badges: ['live on pools.xyz']});
+  if (king && features.length < 2) {
     const same = features.find(f => f.l.token === king.token);
     if (same) same.badges.push('closest to graduating');
     else features.push({l: king, badges: ['closest to graduating']});
@@ -102,7 +105,7 @@ export function Board() {
           options={[
             {value: 'all', label: 'All', count: counts?.all},
             {value: 'curve', label: 'On the curve', count: counts?.curve},
-            {value: 'graduated', label: 'Graduated', count: counts?.graduated},
+            {value: 'graduated', label: 'In a pool', count: counts?.graduated},
           ]}
         />
         <label className="ml-auto flex items-center gap-2 text-[13px] text-ink-400">
@@ -195,9 +198,9 @@ function Feature({l, badges, wide}: {l: Launch; badges: string[]; wide: boolean}
               <dd className="text-ink-100">{eth(l.marketCapEth)}</dd>
             </div>
             <div>
-              <dt className="text-ink-500">raised</dt>
+              <dt className="text-ink-500">{l.kind === 'pools' ? 'venue' : 'raised'}</dt>
               <dd className="text-ink-100">
-                {l.quoteReserve.toFixed(3)} / {l.graduationThreshold} ETH
+                {l.kind === 'pools' ? 'Uniswap v4 pool' : `${l.quoteReserve.toFixed(3)} / ${l.graduationThreshold} ETH`}
               </dd>
             </div>
             <div>
@@ -212,11 +215,11 @@ function Feature({l, badges, wide}: {l: Launch; badges: string[]; wide: boolean}
       <div className="flex flex-col justify-between gap-3">
         <div>
           <div className="flex items-baseline justify-between text-[13px]">
-            <span className="text-ink-400">{l.phase === 'curve' ? 'Curve progress' : 'Graduated'}</span>
-            <span className="num text-ink-100">{pct(Math.min(100, progress))}</span>
+            <span className="text-ink-400">{l.kind === 'pools' ? 'In the pool from block one' : l.phase === 'curve' ? 'Curve progress' : 'Graduated'}</span>
+            <span className="num text-ink-100">{l.kind === 'pools' ? 'no curve' : pct(Math.min(100, progress))}</span>
           </div>
           <div className="mt-1.5">
-            <Progress value={Math.min(100, progress)} label="Curve progress" />
+            <Progress value={l.kind === 'pools' ? 100 : Math.min(100, progress)} tone={l.kind === 'pools' ? 'up' : 'brass'} label="Curve progress" />
           </div>
           <p className="num mt-1.5 text-[12px] text-ink-500">
             by {short(l.creator)} · {ago(l.createdAt)} ago · {l.tradeCount} trades

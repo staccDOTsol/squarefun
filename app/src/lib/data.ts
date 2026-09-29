@@ -25,6 +25,7 @@ import {
   sinkAbi,
   tokenAbi,
 } from './chain';
+import {isPoolsToken, pools, poolsTx} from './pools';
 import type {Distribution, Launch, LaunchConfig, Migration, MigrationStage, Reference, SinkState, Trade, WalletToken} from './types';
 
 /**
@@ -146,17 +147,22 @@ export const data = {
         counts.set(k, (counts.get(k) ?? 0) + 1);
       }
     }
-    return Promise.all(
-      logs.map(l =>
-        hydrate(l.args.token!, l.args.curve!, l.args.deployer!, l.blockNumber, counts.get(l.args.curve!.toLowerCase()) ?? 0, l.address as Address),
+    const [pad, viaPools] = await Promise.all([
+      Promise.all(
+        logs.map(l =>
+          hydrate(l.args.token!, l.args.curve!, l.args.deployer!, l.blockNumber, counts.get(l.args.curve!.toLowerCase()) ?? 0, l.address as Address),
+        ),
       ),
-    );
+      // a failure reading Pools launches must not empty the board
+      pools.launches().catch(() => [] as Launch[]),
+    ]);
+    return [...pad, ...viaPools];
   },
 
   async launch(token: Address): Promise<Launch | null> {
     if (!deployed) return null;
     const found = await recordFor(token);
-    if (!found) return null;
+    if (!found) return pools.launch(token);
     const {factory, record} = found;
     const to = await latestBlock();
     const logs = await launchLogs(BigInt(ADDR.deployBlock), to);
@@ -177,6 +183,7 @@ export const data = {
 
   /** Re-read a launch's live numbers (reserves, references this block, phase). Cheap: one batched call. */
   async refresh(l: Launch, tradeCount = l.tradeCount): Promise<Launch> {
+    if (l.kind === 'pools') return pools.refresh(l, tradeCount);
     return hydrate(l.token, l.curve, l.creator, l.createdBlock, tradeCount, l.factory);
   },
 
@@ -188,6 +195,8 @@ export const data = {
     const to = range?.to ?? (await latestBlock());
     const from = range?.from ?? (to > LOOKBACK ? to - LOOKBACK : BigInt(ADDR.deployBlock));
     if (from > to) return [];
+    // a Pools launch has no curve; its "curve" is the token and its trades are pool swaps
+    if (isPoolsToken(curve)) return pools.trades(curve, {from, to});
     const logs = await getLogsChunked(
       (a, b) => publicClient.getLogs({address: curve, events: [curveAbi[0], curveAbi[1]], fromBlock: a, toBlock: b}),
       from,
@@ -427,6 +436,7 @@ export const data = {
 
   /** Curve quote preview from live reserves and the fee terms the curve reports. */
   async quote(curve: Address, side: 'buy' | 'sell', amount: number, recipient: Address) {
+    if (isPoolsToken(curve)) return pools.quote(curve, side, amount, recipient);
     const [reserves, feeBps, taxBps, snipeBps] = await Promise.all([
       publicClient.readContract({address: curve, abi: curveAbi, functionName: 'getReserves'}),
       publicClient.readContract({address: curve, abi: curveAbi, functionName: 'feeBps'}),
@@ -450,6 +460,7 @@ export const data = {
 /** Writes. Every function returns the transaction hash after it is mined. */
 export const tx = {
   async buy(w: WalletClient, curve: Address, quoteEth: number, minTokens: number, recipient: Address) {
+    if (isPoolsToken(curve)) return poolsTx.buy(w, curve, quoteEth, minTokens, recipient);
     const value = parseEther(quoteEth.toFixed(18));
     const hash = await w.writeContract({
       chain: robinhood,
@@ -465,6 +476,7 @@ export const tx = {
   },
 
   async sell(w: WalletClient, token: Address, curve: Address, tokens: number, minQuote: number, account: Address) {
+    if (isPoolsToken(curve)) return poolsTx.sell(w, token, tokens, minQuote, account);
     const amount = parseEther(tokens.toFixed(18));
     const allowance = await publicClient.readContract({address: token, abi: tokenAbi, functionName: 'allowance', args: [account, curve]});
     if (allowance < amount) {
@@ -482,6 +494,9 @@ export const tx = {
     await publicClient.waitForTransactionReceipt({hash});
     return hash;
   },
+
+  /** New launches go through Uniswap's Liquidity Launcher, straight into a v4 pool. */
+  launchViaPools: poolsTx.launch,
 
   async launch(
     w: WalletClient,

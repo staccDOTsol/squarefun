@@ -18,6 +18,7 @@ export function TokenImage({l, className = ''}: {l: Pick<Launch, 'image' | 'symb
 export function TokenCard({l, index = 0}: {l: Launch; index?: number}) {
   const progress = Math.min(100, l.graduationThreshold ? (l.quoteReserve / l.graduationThreshold) * 100 : 0);
   const graduated = l.phase === 'pool';
+  const viaPools = l.kind === 'pools';
   return (
     <Link
       to={`/t/${l.token}`}
@@ -33,7 +34,7 @@ export function TokenCard({l, index = 0}: {l: Launch; index?: number}) {
               </p>
               <p className="truncate text-[13px] text-ink-400">{l.description}</p>
             </div>
-            {graduated ? <Badge tone="brass">graduated</Badge> : l.phase === 'swept' ? <Badge>sweeping</Badge> : null}
+            {viaPools ? <Badge tone="brass">pools.xyz</Badge> : graduated ? <Badge tone="brass">graduated</Badge> : l.phase === 'swept' ? <Badge>sweeping</Badge> : null}
           </div>
           <div className="num mt-2 flex items-center gap-3 text-[12px] text-ink-400">
             <span>
@@ -53,7 +54,7 @@ export function TokenCard({l, index = 0}: {l: Launch; index?: number}) {
         <span className="num w-10 text-right text-[12px] text-ink-400">{graduated ? 'pool' : pct(progress)}</span>
       </div>
       <div className="mt-2.5 flex items-center justify-between">
-        <ReferenceMeter refs={l.referencesThisBlock} compact />
+        <ReferenceMeter refs={l.referencesThisBlock} compact freeRefs={l.twoRatchets ? 2 : 1} />
         <span className="num text-[11px] text-ink-500">{l.tradeCount} trades</span>
       </div>
     </Link>

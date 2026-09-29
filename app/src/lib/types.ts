@@ -27,6 +27,8 @@ export interface Launch {
   squarePaid: number;
   /** curve trades seen in the scanned window */
   tradeCount: number;
+  /** 'pools': launched through Uniswap's Liquidity Launcher, straight into a v4 pool, no curve */
+  kind?: 'pad' | 'pools';
   /** which factory launched it */
   factory: Address;
   /** v2 tokens carry two ratchets: first two references in a block are free */

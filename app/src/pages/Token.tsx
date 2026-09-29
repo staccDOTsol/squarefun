@@ -112,7 +112,9 @@ export function Token({address}: {address: string}) {
   return (
     <main className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
       <p role="note" className="mb-4 border-l-2 border-brass-500 pl-3 text-[13px] leading-5 text-ink-300">
-        {BRAND.secondaries}{' '}
+        {l?.kind === 'pools'
+          ? 'This token lives in one plain Uniswap v4 pool. Buy here or through any aggregator: the quote comes from the same pool. Your first two transfers in a block are free.'
+          : BRAND.secondaries}{' '}
         <Link to="/how" className="text-brass-400 underline-offset-4 hover:underline">
           Why
         </Link>
@@ -127,7 +129,7 @@ export function Token({address}: {address: string}) {
             <h1 className="text-lg font-semibold text-ink-100">
               {l.name} <span className="num text-sm font-normal text-ink-500">${l.symbol}</span>
             </h1>
-            {graduated ? <Badge tone="brass">graduated</Badge> : <Badge>on the curve</Badge>}
+            {l.kind === 'pools' ? <Badge tone="brass">pools.xyz</Badge> : graduated ? <Badge tone="brass">graduated</Badge> : <Badge>on the curve</Badge>}
             {head !== null && (
               <span className="num inline-flex items-center gap-1.5 text-[11px] text-ink-500" title="Updates every block, no refresh needed">
                 <span className="relative flex size-1.5">
@@ -139,7 +141,7 @@ export function Token({address}: {address: string}) {
             )}
             <dl className="num ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
               <Stat k="mc" v={eth(l.marketCapEth)} />
-              <Stat k="raised" v={`${l.quoteReserve.toFixed(3)} ETH`} />
+              {l.kind !== 'pools' && <Stat k="raised" v={`${l.quoteReserve.toFixed(3)} ETH`} />}
               <Stat k="square paid" v={`${num(l.squarePaid)} ${l.symbol}`} tone="brass" />
               <button
                 onClick={() => {
@@ -189,16 +191,24 @@ export function Token({address}: {address: string}) {
           {l && (
             <section className="rounded-lg border border-ink-800 bg-ink-900 p-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <p className="text-[13px] font-medium text-ink-300">{graduated ? 'Graduated' : 'Curve progress'}</p>
+                <p className="text-[13px] font-medium text-ink-300">{l.kind === 'pools' ? 'Launched on pools.xyz' : graduated ? 'Graduated' : 'Curve progress'}</p>
                 <p className="num text-[13px] text-ink-400">
-                  {l.quoteReserve.toFixed(3)} / {l.graduationThreshold} {BRAND.quote} · {pct(graduated ? 100 : progress)}
+                  {l.kind === 'pools' ? (
+                    <a href={`https://pools.xyz/t/robinhood/${l.token}`} target="_blank" rel="noreferrer" className="text-brass-400 hover:underline">
+                      open on pools.xyz ↗
+                    </a>
+                  ) : (
+                    `${l.quoteReserve.toFixed(3)} / ${l.graduationThreshold} ${BRAND.quote} · ${pct(graduated ? 100 : progress)}`
+                  )}
                 </p>
               </div>
               <div className="mt-2">
                 <Progress value={graduated ? 100 : progress} tone={graduated ? 'up' : 'brass'} label="Curve progress" />
               </div>
               <p className="measure mt-2 text-[13px] text-ink-500">
-                {graduated
+                {l.kind === 'pools'
+                  ? 'No curve. The whole supply went into a native-ETH Uniswap v4 pool in the launch transaction, and the position is locked in Uniswap\'s fee splitter for good. Every transfer after the launch block is a reference.'
+                  : graduated
                   ? 'The curve closed and its whole reserve seeded a full-range Uniswap v4 position that nothing can remove. From here every transfer is a reference.'
                   : `When ${l.graduationThreshold} ${BRAND.quote} is raised the curve sweeps into a permanent full-range pool. Until then, trading with the curve is free of the square.`}
               </p>

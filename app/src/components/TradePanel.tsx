@@ -49,7 +49,8 @@ export function TradePanel({l, onTraded}: {l: Launch; onTraded?: () => void}) {
 
   const n = Number(amount);
   const invalid = amount !== '' && (!Number.isFinite(n) || n <= 0);
-  const graduated = l.phase !== 'curve';
+  const viaPools = l.kind === 'pools';
+  const graduated = l.phase !== 'curve' && !viaPools;
   const recipient = wallet.address ?? '0x0000000000000000000000000000000000000001';
 
   useEffect(() => {
@@ -190,7 +191,7 @@ export function TradePanel({l, onTraded}: {l: Launch; onTraded?: () => void}) {
       <dl className="num mt-4 space-y-1.5 text-[13px]">
         <Row k="You receive" v={quote ? `${num(quote.out, 4)} ${side === 'buy' ? l.symbol : 'ETH'}` : '—'} strong />
         <Row k={`Min after ${slippage}% slip`} v={quote ? `${num(minOut, 4)}` : '—'} />
-        <Row k="Curve fee" v={quote ? `${quote.feeBps} bp${quote.taxBps ? ` + ${quote.taxBps} bp creator` : ''}` : '—'} />
+        <Row k={viaPools ? 'Pool fee' : 'Curve fee'} v={quote ? `${quote.feeBps} bp${quote.taxBps ? ` + ${quote.taxBps} bp creator` : ''}` : '—'} />
         {quote && quote.snipeBps > 0 && <Row k="Snipe tax now" v={`${quote.snipeBps} bp`} tone="warn" />}
         <Row k="Price impact" v={quote ? pct(quote.impact, 2) : '—'} tone={quote && quote.impact > 5 ? 'warn' : undefined} />
       </dl>
@@ -205,14 +206,29 @@ export function TradePanel({l, onTraded}: {l: Launch; onTraded?: () => void}) {
         {label}
       </Button>
 
-      <p className="mt-3 text-[12px] text-ink-500">
-        On the curve your trade is not a reference: buys and sells with the curve are never taxed by the square. The k-th reference
-        rule starts when the token graduates to its pool.
-      </p>
-      <p className="mt-1 text-[11px] text-ink-600">Next reference on this token pays {referenceFeeBps(l.referencesThisBlock + 1, l.twoRatchets ? 2 : 1)} bp there.{l.twoRatchets ? ' Two ratchets: the first two references in a block are free, and a wallet\'s repeat touches within ~8 minutes pay on their own count.' : ''}</p>
-      <p className="mt-2 text-[11px] text-ink-600">
-        Scanner says 10% tax? It bought and sold in one transaction through a side pool and touched the token ten times. That is the square doing its job. One swap per block is free.
-      </p>
+      {viaPools ? (
+        <>
+          <p className="mt-3 text-[12px] text-ink-500">
+            This trades against the token's Uniswap v4 pool through the universal router: one transfer, so one reference. Your first two in
+            a block are free and so are your first sixteen in a week.
+          </p>
+          <p className="mt-1 text-[11px] text-ink-600">
+            After that a buy arrives short by the fee, and a sell fails, because the pool is owed more than reaches it. Selling asks for two
+            approvals the first time.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="mt-3 text-[12px] text-ink-500">
+            On the curve your trade is not a reference: buys and sells with the curve are never taxed by the square. The k-th reference
+            rule starts when the token graduates to its pool.
+          </p>
+          <p className="mt-1 text-[11px] text-ink-600">Next reference on this token pays {referenceFeeBps(l.referencesThisBlock + 1, l.twoRatchets ? 2 : 1)} bp there.{l.twoRatchets ? ' Two ratchets: the first two references in a block are free, and a wallet\'s repeat touches within ~8 minutes pay on their own count.' : ''}</p>
+          <p className="mt-2 text-[11px] text-ink-600">
+            Scanner says 10% tax? It bought and sold in one transaction through a side pool and touched the token ten times. That is the square doing its job. One swap per block is free.
+          </p>
+        </>
+      )}
     </div>
   );
 }

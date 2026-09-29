@@ -1,16 +1,16 @@
 import {upload} from '@vercel/blob/client';
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {useMemo, useRef, useState} from 'react';
 import {Button} from '../components/ui/Button';
 import {Input, Textarea} from '../components/ui/Field';
-import {Badge, Empty, Progress, toast} from '../components/ui/Bits';
+import {Badge, Empty, toast} from '../components/ui/Bits';
 import {ReferenceMeter} from '../components/ReferenceMeter';
 import {BRAND} from '../lib/brand';
 import {data, tx} from '../lib/data';
 import {useRouter} from '../lib/router';
-import type {LaunchConfig} from '../lib/types';
+import {poolsDeployed} from '../lib/pools';
 import {useWallet} from '../lib/wallet';
 
-const empty = {name: '', symbol: '', description: '', image: '', twitter: '', telegram: '', discord: '', website: '', farcaster: '', creatorTax: 0, buyback: true};
+const empty = {name: '', symbol: '', description: '', image: '', twitter: '', telegram: '', discord: '', website: '', farcaster: '', };
 
 export function Launch() {
   const wallet = useWallet();
@@ -18,8 +18,6 @@ export function Launch() {
   const [f, setF] = useState(empty);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
-  const [cfg, setCfg] = useState<LaunchConfig | null>(null);
-  const [cfgErr, setCfgErr] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -49,10 +47,6 @@ export function Launch() {
     }
   };
 
-  useEffect(() => {
-    data.config().then(setCfg).catch(e => setCfgErr(e instanceof Error ? e.message : 'Could not read the factory'));
-  }, []);
-
   const errors = useMemo(() => {
     const e: Record<string, string> = {};
     if (!f.name.trim()) e.name = 'Give it a name';
@@ -68,7 +62,7 @@ export function Launch() {
   }, [f]);
   const valid = Object.keys(errors).length === 0;
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setF(s => ({...s, [k]: k === 'creatorTax' ? Number(e.target.value) : k === 'buyback' ? (e.target as HTMLInputElement).checked : e.target.value}));
+    setF(s => ({...s, [k]: e.target.value}));
   const blur = (k: string) => () => setTouched(t => ({...t, [k]: true}));
 
   const submit = async () => {
@@ -78,14 +72,14 @@ export function Launch() {
     if (wallet.status !== 'connected' || !wallet.client || !wallet.address) return wallet.connect();
     setBusy(true);
     try {
-      const {token} = await tx.launch(wallet.client, wallet.address, {
+      // the token's on-chain metadata has one link field; the others ride in the description
+      const links = [f.twitter.trim(), f.telegram.trim()].filter(Boolean).join(' · ');
+      const {token} = await tx.launchViaPools(wallet.client, wallet.address, {
         name: f.name.trim(),
         symbol: f.symbol.trim().toUpperCase(),
-        logo: f.image.trim(),
-        description: f.description.trim(),
-        socials: {twitter: f.twitter.trim(), telegram: f.telegram.trim(), discord: f.discord.trim(), website: f.website.trim(), farcaster: f.farcaster.trim()},
-        creatorTaxBps: Math.round(f.creatorTax * 100),
-        buybackEnabled: f.buyback,
+        image: f.image.trim(),
+        description: [f.description.trim(), links].filter(Boolean).join('\n'),
+        website: f.website.trim(),
       });
       toast(`${f.name} is on the board`);
       navigate(token ? `/t/${token}` : '/');
@@ -97,15 +91,13 @@ export function Launch() {
     }
   };
 
-  if (!data.deployed) {
+  if (!data.deployed || !poolsDeployed) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-16 sm:px-6">
         <Empty title={`${BRAND.name} is not on ${BRAND.chainName} yet`} body="Launches open when the factory is deployed." />
       </main>
     );
   }
-
-  const maxTax = cfg ? cfg.maxCreatorTaxBps / 100 : 10;
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
@@ -120,11 +112,9 @@ export function Launch() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-ink-100">Launch a token</h1>
             <p className="measure mt-1.5 text-sm text-ink-400">
-              {cfg
-                ? `${cfg.launchFee === 0 ? 'No launch fee.' : `Launch fee ${cfg.launchFee} ETH.`} The whole supply goes to a bonding curve with a ${cfg.curveFeeBps / 100}% trade fee; at ${cfg.graduationThreshold} ${BRAND.quote} it graduates into a permanent pool.`
-                : cfgErr
-                  ? `Could not read the launch terms: ${cfgErr}`
-                  : 'Reading the launch terms from the factory…'}{' '}
+              No launch fee. The whole supply goes straight into a native-ETH Uniswap v4 pool through Uniswap's Liquidity
+              Launcher, the contract behind pools.xyz. There is no curve, the liquidity is locked for good, and aggregators quote
+              the pool from the first block.{' '}
               Every token launched here is an EIP-8429 token: the square is on by construction and can never be turned off.
             </p>
           </div>
@@ -170,32 +160,30 @@ export function Launch() {
             </div>
           </fieldset>
 
-          <fieldset className="space-y-4">
-            <legend className="text-[13px] font-medium uppercase tracking-wide text-ink-500">Economics</legend>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block">
-                <span className="mb-1.5 block text-[13px] font-medium text-ink-300">Creator tax</span>
-                <div className="flex items-center gap-3">
-                  <input type="range" min={0} max={maxTax} step={0.5} value={f.creatorTax} onChange={set('creatorTax')} className="w-full accent-brass-500" aria-label="Creator tax in percent" />
-                  <span className="num w-12 text-right text-sm text-ink-100">{f.creatorTax}%</span>
+          <fieldset className="space-y-3">
+            <legend className="text-[13px] font-medium uppercase tracking-wide text-ink-500">Terms, fixed by the launcher</legend>
+            <dl className="num grid gap-x-6 gap-y-2 text-[13px] sm:grid-cols-2">
+              {[
+                ['Supply', '1,000,000,000, all of it in the pool'],
+                ['Opens at', 'about 2.5 ETH market cap'],
+                ['Pool fee', '0.25% per trade'],
+                ['Your share', '40% of the ETH side of pool fees'],
+                ['Liquidity', 'locked in Uniswap\u2019s fee splitter, permanently'],
+                ['Dev buy', 'none: buy after launch like anyone else'],
+              ].map(([k, v]) => (
+                <div key={k} className="flex items-baseline justify-between gap-3 border-b border-ink-850 pb-1.5">
+                  <dt className="text-ink-500">{k}</dt>
+                  <dd className="text-right text-ink-200">{v}</dd>
                 </div>
-                <span className="mt-1.5 block text-[13px] text-ink-500">On every trade, to you, on top of the curve fee. Most launches set 0.</span>
-              </label>
-              <label className="flex items-start gap-3 rounded-md border border-ink-800 p-3">
-                <input type="checkbox" checked={f.buyback} onChange={set('buyback')} className="mt-1 accent-brass-500" />
-                <span>
-                  <span className="block text-[13px] font-medium text-ink-300">Buyback and lock</span>
-                  <span className="block text-[13px] text-ink-500">Half of your fee share buys the token back and locks it for five years.</span>
-                </span>
-              </label>
-            </div>
+              ))}
+            </dl>
           </fieldset>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <Button type="submit" size="lg" loading={busy || wallet.status === 'connecting'} disabled={busy || !cfg}>
+            <Button type="submit" size="lg" loading={busy || wallet.status === 'connecting'} disabled={busy}>
               {wallet.status === 'wrong-chain' ? `Switch to ${BRAND.chainName}` : wallet.status === 'connected' ? 'Launch' : 'Connect and launch'}
             </Button>
-            <p className="text-[13px] text-ink-500">One transaction. Gas{cfg && cfg.launchFee > 0 ? ` plus ${cfg.launchFee} ETH` : ' only'}.</p>
+            <p className="text-[13px] text-ink-500">One transaction. Gas only.</p>
           </div>
         </form>
 
@@ -215,23 +203,18 @@ export function Launch() {
                 <p className="num mt-2 text-[12px] text-ink-500">by you · now</p>
               </div>
             </div>
-            <div className="mt-3 flex items-center gap-3">
-              <div className="flex-1">
-                <Progress value={0} label="Curve progress" />
-              </div>
-              <span className="num w-10 text-right text-[12px] text-ink-400">0%</span>
-            </div>
+            <p className="num mt-3 text-[12px] text-ink-500">pools.xyz · Uniswap v4 · no curve</p>
           </div>
           <div className="rounded-lg border border-ink-800 bg-ink-900 p-4 text-[13px]">
             <p className="font-medium text-ink-200">What your token enforces, forever</p>
             <ul className="mt-2 space-y-1.5 text-ink-400">
-              <li className="flex gap-2"><Badge tone="brass">1</Badge> First reference in a block is free.</li>
-              <li className="flex gap-2"><Badge tone="brass">2</Badge> The k-th pays 10 bp × k², in kind, capped at 100%.</li>
-              <li className="flex gap-2"><Badge tone="brass">3</Badge> Half to a sink nobody controls, half to ${BRAND.token} stakers.</li>
-              <li className="flex gap-2"><Badge tone="brass">4</Badge> Curve, pool seeding and the hook are never references.</li>
+              <li className="flex gap-2"><Badge tone="brass">1</Badge> The first two transfers in a block are free, and a wallet's first sixteen in a week.</li>
+              <li className="flex gap-2"><Badge tone="brass">2</Badge> After that the k-th pays 10 bp × k², in kind, capped at 100%.</li>
+              <li className="flex gap-2"><Badge tone="brass">3</Badge> Fees are sold for ETH: half to a sink nobody controls, half to ${BRAND.token} stakers. Nothing is burned.</li>
+              <li className="flex gap-2"><Badge tone="brass">4</Badge> The launch transaction itself is never a reference.</li>
             </ul>
           </div>
-          <ReferenceMeter refs={0} />
+          <ReferenceMeter refs={0} freeRefs={2} />
         </aside>
       </div>
     </main>
