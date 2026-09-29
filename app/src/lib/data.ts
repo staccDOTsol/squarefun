@@ -263,7 +263,10 @@ export const data = {
     // every launch is a potential payer; show the ones with anything landed or distributed
     const launches = await launchLogs(BigInt(ADDR.deployBlock), to);
     // every launch, plus WETH: the settler pays the pool in wrapped ETH
-    const tokens = [...new Set([...launches.map(l => l.args.token!.toLowerCase() as Address), WETH.toLowerCase() as Address])].filter(t => t !== ADDR.placeholder?.toLowerCase());
+    // launches made through Pools pay their own settler; its venue is the token's v4 pool
+    const viaPools = await pools.launches().catch(() => [] as Launch[]);
+    const poolsSet = new Set(viaPools.map(l => l.token.toLowerCase()));
+    const tokens = [...new Set([...launches.map(l => l.args.token!.toLowerCase() as Address), ...viaPools.map(l => l.token.toLowerCase() as Address), WETH.toLowerCase() as Address])].filter(t => t !== ADDR.placeholder?.toLowerCase());
     const perToken = await Promise.all(
       tokens.map(async token => {
         const [symbol, count, claimable, poolBal, poolReserved, legacyBal, legacyReserved, wizBal, wizReserved, settlerBal] = await Promise.all([
@@ -276,7 +279,10 @@ export const data = {
           legacy ? publicClient.readContract({address: legacy, abi: sinkAbi, functionName: 'reserved', args: [token]}) : Promise.resolve(0n),
           publicClient.readContract({address: token, abi: erc20Abi, functionName: 'balanceOf', args: [ADDR.wizards]}),
           publicClient.readContract({address: ADDR.wizards, abi: wizardsAbi, functionName: 'reserved', args: [token]}).catch(() => 0n),
-          ADDR.settler ? publicClient.readContract({address: token, abi: erc20Abi, functionName: 'balanceOf', args: [ADDR.settler]}).catch(() => 0n) : Promise.resolve(0n),
+          (() => {
+            const settler = poolsSet.has(token) ? ADDR.pools?.settler : ADDR.settler;
+            return settler ? publicClient.readContract({address: token, abi: erc20Abi, functionName: 'balanceOf', args: [settler]}).catch(() => 0n) : Promise.resolve(0n);
+          })(),
         ]);
         const distributions: Distribution[] = await Promise.all(
           Array.from({length: Number(count)}, async (_, i) => {
@@ -571,7 +577,10 @@ export const tx = {
 
   /** Sell what the settler holds of `token` for ETH: half burned, half to the pool as WETH. Anyone may call. */
   async settle(w: WalletClient, account: Address, token: Address) {
-    const hash = await w.writeContract({chain: robinhood, account, address: ADDR.settler!, abi: settlerAbi, functionName: 'settle', args: [token, 0n]});
+    // a Pools launch pays its own settler, which sells into the token's v4 pool
+    const viaPools = isPoolsToken(token) || (ADDR.pools?.tokens ?? []).some(t => t.toLowerCase() === token.toLowerCase());
+    const settler = viaPools ? ADDR.pools!.settler : ADDR.settler!;
+    const hash = await w.writeContract({chain: robinhood, account, address: settler, abi: settlerAbi, functionName: 'settle', args: [token, 0n]});
     await publicClient.waitForTransactionReceipt({hash});
     return hash;
   },

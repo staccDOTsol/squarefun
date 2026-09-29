@@ -207,7 +207,7 @@ export function CurveChart({trades, symbol}: {trades: Trade[]; symbol: string}) 
           {(hover ? hoverChange : change).toFixed(1)}%
         </span>
         <span className="hidden text-[12px] text-ink-500 sm:inline">
-          {symbol} per unit · {valid.length} curve trades
+          {symbol} per unit · {valid.length} trades
         </span>
         <div className="ml-auto flex items-center gap-1" role="group" aria-label="Candle size">
           {FRAMES.map(f => (

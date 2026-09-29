@@ -243,7 +243,7 @@ export function Token({address}: {address: string}) {
                 className={`-mb-px border-b-2 px-3 py-2 text-sm transition-colors ${
                   tab === t ? 'border-brass-500 text-ink-100' : 'border-transparent text-ink-400 hover:text-ink-200'
                 } focus-visible:outline-brass-400`}>
-                {t === 'trades' ? 'Curve trades' : 'References paid'}
+                {t === 'trades' ? (l?.kind === 'pools' ? 'Trades' : 'Curve trades') : 'References paid'}
                 <span className="num ml-1.5 text-[11px] text-ink-500">{t === 'trades' ? trades?.length ?? '' : refs?.length ?? ''}</span>
               </button>
             ))}
@@ -289,7 +289,7 @@ function Stat({k, v, tone}: {k: string; v: string; tone?: 'brass'}) {
 
 function TradesTable({trades, symbol, explorer}: {trades: Trade[] | null; symbol: string; explorer: string}) {
   if (!trades) return <Skeleton className="h-40 w-full" />;
-  if (trades.length === 0) return <p className="py-8 text-center text-sm text-ink-500">No curve trades in the last few hours.</p>;
+  if (trades.length === 0) return <p className="py-8 text-center text-sm text-ink-500">No trades in the last few hours.</p>;
   return (
     <div className="overflow-x-auto rounded-lg border border-ink-800">
       <table className="num w-full text-[13px]">
