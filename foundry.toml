@@ -22,4 +22,7 @@ remappings = [
     "v4-hooks-public/=contracts/lib/v4-hooks-public/src/",
 ]
 
-fs_permissions = [{ access = "read-write", path = "./app/src/deployments" }]
+fs_permissions = [
+    { access = "read-write", path = "./app/src/deployments" },
+    { access = "read", path = "./test/fixtures" },
+]
