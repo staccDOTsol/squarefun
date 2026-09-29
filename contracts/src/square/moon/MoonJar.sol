@@ -66,7 +66,7 @@ contract MoonJar is ReentrancyGuard {
     /// @notice Draws paid for and not yet requested.
     uint256 public owed;
 
-    /// @notice The request in flight (0 = none; OpenVRF ids start at 0, so this stores id + 1).
+    /// @notice The request in flight (0 = none, so this stores id + 1).
     uint256 public pending;
     uint256 public pendingRound;
     uint256 public requestedAt;
