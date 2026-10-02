@@ -7,12 +7,12 @@ import {Input} from '../components/ui/Field';
 import {Badge, Empty, ErrorBox, Progress, Tabs} from '../components/ui/Bits';
 import {Flash} from '../components/ui/Live';
 import {useActivity} from '../lib/activity';
-import {asLaunch, contagian} from '../lib/contagian';
+import {asLaunch, contagian, CONTAGIAN_SUPPLY, ofParity, type ContagianLaunch} from '../lib/contagian';
 import {useSquareLeadersAll} from '../lib/leaders';
 import {BRAND} from '../lib/brand';
 import {data} from '../lib/data';
 import {useLive} from '../lib/live';
-import {ago, eth, pct, short} from '../lib/format';
+import {ago, eth, num, pct, price, short} from '../lib/format';
 import {Link} from '../lib/router';
 import type {Feed, Launch, Sort} from '../lib/types';
 import {ADDR} from '../lib/chain';
@@ -21,6 +21,7 @@ const PAGE = 12;
 
 export function Board() {
   const [launches, setLaunches] = useState<Launch[] | null>(null);
+  const [ctgs, setCtgs] = useState<ContagianLaunch[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [feed, setFeed] = useState<Feed>('all');
@@ -31,6 +32,7 @@ export function Board() {
   const reload = useCallback(async () => {
     const [square, ctg] = await Promise.all([data.launches(), contagian.list().catch(() => [])]);
     setLaunches([...square, ...ctg.map(c => asLaunch(c))]);
+    setCtgs(ctg);
   }, []);
   const load = () => {
     setError(null);
@@ -73,6 +75,12 @@ export function Board() {
     };
     return [...l].sort((a, b) => key[sort](b) - key[sort](a));
   }, [launches, q, feed, sort, swaps]);
+
+  // Contagian launches lead the page, the busiest first
+  const contagians = useMemo(
+    () => [...ctgs].sort((a, b) => (swaps[b.token.toLowerCase()] ?? 0) - (swaps[a.token.toLowerCase()] ?? 0) || b.launchedAt - a.launchedAt).slice(0, 4),
+    [ctgs, swaps],
+  );
 
   const king = launches ? [...launches].filter(x => x.phase === 'curve').sort((a, b) => b.quoteReserve - a.quoteReserve)[0] ?? null : null;
   // the newest launch made through Pools, which is where launches go now
@@ -121,8 +129,16 @@ export function Board() {
         </Link>
       </section>
 
+      {contagians.length > 0 && (
+        <section aria-label="Contagian launches" className={`anim-rise mt-8 grid gap-4 ${contagians.length > 1 ? 'lg:grid-cols-2' : ''}`}>
+          {contagians.map(c => (
+            <ContagianFeature key={c.token} c={c} trades={swaps[c.token.toLowerCase()] ?? 0} wide={contagians.length === 1} />
+          ))}
+        </section>
+      )}
+
       {features.length > 0 && (
-        <section aria-label="Featured launches" className={`anim-rise mt-8 grid gap-4 ${features.length > 1 ? 'lg:grid-cols-2' : ''}`}>
+        <section aria-label="Featured launches" className={`anim-rise ${contagians.length > 0 ? 'mt-4' : 'mt-8'} grid gap-4 ${features.length > 1 ? 'lg:grid-cols-2' : ''}`}>
           {features.map(f => (
             <Feature key={f.l.token} l={f.l} badges={f.badges} wide={features.length === 1} />
           ))}
@@ -322,6 +338,95 @@ function Feature({l, badges, wide}: {l: Launch; badges: string[]; wide: boolean}
           </p>
         </div>
         <ReferenceMeter refs={l.referencesThisBlock} freeRefs={l.twoRatchets ? 2 : 1} />
+      </div>
+    </div>
+  );
+}
+
+/** A Contagian launch at the top of the board: where it stands against parity, and who pays on that side. */
+function ContagianFeature({c, trades, wide}: {c: ContagianLaunch; trades: number; wide: boolean}) {
+  const parityPct = c.spot !== null && c.parity !== null && c.parity > 0 ? (c.spot / c.parity) * 100 : null;
+  const over = parityPct !== null && parityPct > 100;
+  const rule = parityPct === null ? `Tends to 1 ${c.peg.symbol}.` : over ? 'Over parity: buyers pay, sellers don\'t.' : parityPct < 100 ? 'Under parity: sellers pay, buyers don\'t.' : 'At parity: move it either way and you pay for the move.';
+  const bp = (b: number | null) => (b === null ? '—' : `${(b / 100).toFixed(2)}%`);
+  return (
+    <div className={`grid gap-4 rounded-xl border border-brass-700/40 bg-ink-900 p-4 md:p-5 ${wide ? 'md:grid-cols-[1.4fr_1fr]' : ''}`}>
+      <Link to={`/t/${c.token}`} className="group flex gap-4">
+        <TokenImage l={c} className="size-24 shrink-0 text-base sm:size-32" />
+        <div className="min-w-0">
+          <div className="flex flex-wrap gap-1.5">
+            <Badge tone="brass">Contagian</Badge>
+            <Badge>
+              tends to 1 {c.peg.symbol}
+            </Badge>
+          </div>
+          <h2 className="mt-2 truncate text-xl font-semibold text-ink-100 group-hover:text-brass-300 sm:text-2xl">
+            {c.name} <span className="num text-base font-normal text-ink-500">${c.symbol}</span>
+          </h2>
+          <p className="measure line-clamp-2 text-sm text-ink-400">{c.description}</p>
+          <dl className="num mt-3 grid grid-cols-2 gap-3 text-[13px] sm:grid-cols-4">
+            <div>
+              <dt className="text-ink-500">price</dt>
+              <dd className="text-ink-100">
+                <Flash value={c.spot}>
+                  {c.spot === null ? '—' : price(c.spot)} {c.quote.symbol}
+                </Flash>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-ink-500">market cap</dt>
+              <dd className="text-ink-100">
+                <Flash value={c.spot}>
+                  {c.spot === null ? '—' : num(c.spot * CONTAGIAN_SUPPLY, 0)} {c.quote.symbol}
+                </Flash>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-ink-500">tax buy / sell</dt>
+              <dd className="text-ink-100">
+                <Flash value={c.buyBps === null || c.sellBps === null ? null : c.buyBps * 100_000 + c.sellBps} tint={false}>
+                  {bp(c.buyBps)} / {bp(c.sellBps)}
+                </Flash>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-ink-500">tolls held</dt>
+              <dd className="text-brass-300">
+                <Flash value={c.tolls} tint={false}>
+                  {c.tolls === null ? '—' : num(c.tolls, 0)}
+                </Flash>
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </Link>
+      <div className="flex flex-col justify-between gap-3">
+        <div>
+          <div className="flex items-baseline justify-between text-[13px]">
+            <span className="text-ink-400">Of parity</span>
+            <Flash value={parityPct} className="num text-ink-100">
+              {parityPct === null ? '—' : ofParity(parityPct)}
+            </Flash>
+          </div>
+          <div className="mt-1.5">
+            <Progress value={Math.min(100, parityPct ?? 0)} tone={over ? 'up' : 'brass'} label="Share of parity" />
+          </div>
+          <p className="mt-2 text-[13px] leading-5 text-ink-300">{rule} Faster costs more. Holding is free.</p>
+          <p className="num mt-1.5 text-[12px] text-ink-500">
+            by {short(c.creator)} · {ago(c.launchedAt)} ago ·{' '}
+            <Flash value={trades} tint={false}>
+              {trades} trades
+            </Flash>
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link to={`/t/${c.token}`}>
+            <Button>Trade ${c.symbol}</Button>
+          </Link>
+          <Link to="/contagian">
+            <Button variant="secondary">How Contagian works</Button>
+          </Link>
+        </div>
       </div>
     </div>
   );
