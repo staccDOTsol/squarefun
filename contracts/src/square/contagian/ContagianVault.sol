@@ -30,6 +30,10 @@ interface IWrapped {
     function deposit() external payable;
 }
 
+interface INote {
+    function GOTCHYA() external view returns (string memory);
+}
+
 /// @title ContagianVault: a memecoin that tends to its peg, and who gets paid for it.
 /// @notice The settler of one ContagianToken. The rules, measured against parity (one of the
 ///         peg per token, in the quote the token trades against):
@@ -80,7 +84,13 @@ interface IWrapped {
 ///         the token. The trading fees the vault's offers earn are split a quarter to the
 ///         Stacc Wizards, a quarter to the people staking SQUARE, half to the bad beats.
 ///
-///         All of it is open to anyone to call, and calling twice adds nothing.
+///         Nobody has to do any of it by hand. On every transfer that is not a sale the token
+///         asks the vault to do one chore (offer, settle, harvest a range, deepen a partner, in
+///         turn) and to pay one bad beat what they are owed, and it pays the two wallets in the
+///         transfer what they are owed as holders. A sale is left alone: its own payment to the
+///         pool is in flight. All of it is also open to anyone to call, and calling twice adds
+///         nothing. The bad beats paid in turn are the ones whose entry is at least three
+///         tenths of the average; the small tail can still call `claim`.
 contract ContagianVault is IUnlockCallback {
     using StateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;
@@ -113,20 +123,6 @@ contract ContagianVault is IUnlockCallback {
     uint256 private constant PRICE = 1e36;
     uint256 private constant Q96 = 1 << 96;
     uint256 private constant ACC = 1e36;
-
-    /// @notice What the vault tells a wallet every time it pays the tax.
-    string public constant GOTCHYA = "Gotchya! You just paid the Contagian tax. "
-        "BURN COST: the tokens taken, and their worth in the quote, are in the log beside this note. "
-        "WHAT: this token tends to its peg. Push it away (buy over parity, dump under it, or trade like a machine) "
-        "and up to half the trade is taken. "
-        "HOW: the token took it, and this vault sells it on the way up, never down. "
-        "PAYOFF: you are on the list now. Half of everything the tolls sell for is paid to the list, by how much "
-        "each wallet was burned, in the quote. The other half goes to holders. "
-        "WHEN: your entry starts earning one hour from now, and each sale is paid out over the hour after it. "
-        "So you are paid by whoever gets burned after you: no later burns, no payoff. "
-        "Call claim() on the contract that sent this. Holding is free. "
-        "We realign incentives as it is more palatable than redistributing wealth. "
-        "x.com/staccoverflow sends his regards.";
 
     enum Op {
         Settle,
@@ -208,10 +204,24 @@ contract ContagianVault is IUnlockCallback {
     mapping(address => uint256) private _holderDebt;
     mapping(address => uint256) private _owed;
 
+    /// @notice Every wallet that has paid the tax, in the order they first did.
+    address[] public payers;
+    uint64 private _turn;
+    uint64 private _payAt;
+    uint64 private _harvestAt;
+    uint64 private _deepenAt;
+    /// @dev The least worth sending on its own: a hundredth of a unit of the quote.
+    uint256 private _minPay;
+
     ContagianEngine.State private _engine;
     uint256 private _lastSpot;
     uint256 private _lastParity;
     uint256 private transient _locked;
+
+    /// @dev Where Uniswap's pool manager keeps, for the length of a transaction, whether it is
+    ///      unlocked and which currency a payment is being counted in.
+    bytes32 private constant UNLOCKED_SLOT = bytes32(uint256(keccak256("Unlocked")) - 1);
+    bytes32 private constant SYNCED_SLOT = bytes32(uint256(keccak256("Currency")) - 1);
 
     event Bound(address indexed token, address indexed quote);
     event Settled(address indexed caller, uint256 tolls, uint256 quoteIn, uint256 tip);
@@ -220,8 +230,6 @@ contract ContagianVault is IUnlockCallback {
     event Reflected(uint256 toPayers, uint256 toHolders);
     event Yield(uint256 toWizards, uint256 toStakers, uint256 toPayers);
     event Paid(address indexed originator, uint256 tolls, uint256 worth);
-    /// @notice The vault's note to a wallet, every time it is burned here: what it paid, and what that means.
-    event Gotchya(address indexed to, uint256 tolls, uint256 worth, string message);
     event Claimed(address indexed who, uint256 amount);
 
     error Bad();
@@ -268,6 +276,15 @@ contract ContagianVault is IUnlockCallback {
         return ranges.length;
     }
 
+    function payerCount() external view returns (uint256) {
+        return payers.length;
+    }
+
+    /// @notice The note the token sends a wallet every time it pays the tax.
+    function GOTCHYA() external view returns (string memory) {
+        return INote(token).GOTCHYA();
+    }
+
     /// @dev A swept pool can hand back a unit of native ETH.
     receive() external payable {}
 
@@ -279,6 +296,7 @@ contract ContagianVault is IUnlockCallback {
         token = token_;
         quote = quote_;
         _quoteDecimals = _decimals(quote_);
+        _minPay = 10 ** _quoteDecimals / 100;
         _pegDecimals = _decimals(peg.asset);
         tokenIs0 = token_ < quote_;
         poolId = _key(quote_).toId();
@@ -455,6 +473,56 @@ contract ContagianVault is IUnlockCallback {
     /// @notice While the price is over parity: sell tolls into the launch pool, down to parity
     ///         (or to the price's average, if that is higher) and no further.
     function settle() external lock returns (uint256 sold, uint256 quoteIn) {
+        return _settleNow(msg.sender);
+    }
+
+    /// @notice Put a tranche of tolls on sale above the price in the launch pool. At most once a period.
+    function offer() external lock returns (uint256 placed) {
+        return _offerNow();
+    }
+
+    /// @notice Offer a tranche of tolls against partner `i`, over the token's price in that
+    ///         partner, in the partner's pool with the token. At most once a period for each
+    ///         partner, and the first call for a partner only takes a reading.
+    function deepen(uint256 i) external lock returns (uint256 placed) {
+        return _deepenNow(i);
+    }
+
+    /// @notice Collect from ranges `from` to `from + n`: what an offer that has sold through
+    ///         sold for (split between the bad beats and the holders), and what the others
+    ///         have earned in fees (Wizards, SQUARE stakers, bad beats). The token side joins
+    ///         the tolls. A partner asset stays in custody here.
+    function harvest(uint256 from, uint256 n) external lock returns (uint256 proceeds, uint256 fees) {
+        return _harvestNow(from, n);
+    }
+
+    /// @notice The token's call after a transfer that is not a sale: one chore, one bad beat paid.
+    function chores() external {
+        if (msg.sender != token || _locked != 0) return;
+        // somebody's payment to the pool manager is being counted: leave the manager alone
+        if (manager.exttload(SYNCED_SLOT) != bytes32(0)) return;
+        _locked = 1;
+        uint256 turn = _turn++ % 4;
+        if (turn == 0) {
+            _offerNow();
+        } else if (turn == 1) {
+            _settleNow(address(this));
+        } else if (turn == 2) {
+            if (ranges.length != 0) _harvestNow(_harvestAt++ % ranges.length, 1);
+        } else if (partners.length != 0) {
+            _deepenNow(_deepenAt++ % partners.length);
+        }
+        uint256 n = payers.length;
+        if (n != 0) {
+            address who = payers[_payAt++ % n];
+            _mature(who);
+            // the ones worth the gas: an entry at least three tenths of the average
+            if (paidBy[who] * n * 10 >= totalPaid * 3) _payout(who);
+        }
+        _locked = 0;
+    }
+
+    function _settleNow(address tipTo) private returns (uint256 sold, uint256 quoteIn) {
         if (token == address(0)) revert Bad();
         uint160 sqrtNow = _sqrtPrice();
         (ContagianEngine.State memory s,) = _sample(sqrtNow, sqrtNow);
@@ -462,19 +530,18 @@ contract ContagianVault is IUnlockCallback {
         uint160 limit = _sqrtFor(s.price > s.nav ? s.price : s.nav, tokenIs0);
         // selling the token lowers the pool's own price when the token is currency0, raises it otherwise
         if (amount == 0 || (tokenIs0 ? limit >= sqrtNow : limit <= sqrtNow)) return (0, 0);
-        (sold, quoteIn) =
-            abi.decode(manager.unlock(abi.encode(Op.Settle, address(0), amount, uint256(limit))), (uint256, uint256));
+        (sold, quoteIn) = abi.decode(_run(Op.Settle, address(0), amount, uint256(limit)), (uint256, uint256));
         if (quoteIn != 0) {
-            uint256 tip = (quoteIn * TIP_BPS) / 10_000;
+            // a chore run by the token itself tips nobody
+            uint256 tip = tipTo == address(this) ? 0 : (quoteIn * TIP_BPS) / 10_000;
             _reflect(quoteIn - tip);
-            _send(quote, msg.sender, tip);
-            emit Settled(msg.sender, sold, quoteIn, tip);
+            _send(quote, tipTo, tip);
+            emit Settled(tipTo, sold, quoteIn, tip);
         }
         _lastSpot = _spot(_sqrtPrice());
     }
 
-    /// @notice Put a tranche of tolls on sale above the price in the launch pool. At most once a period.
-    function offer() external lock returns (uint256 placed) {
+    function _offerNow() private returns (uint256 placed) {
         if (token == address(0) || block.timestamp < uint256(seen[quote].at) + PERIOD) return 0;
         uint160 sqrtNow = _sqrtPrice();
         (ContagianEngine.State memory s, uint256 spotNow) = _sample(sqrtNow, sqrtNow);
@@ -483,13 +550,10 @@ contract ContagianVault is IUnlockCallback {
         // never under the price, nor under its average
         uint256 price = spotNow > s.price ? spotNow : s.price;
         seen[quote] = Seen(price, uint64(block.timestamp));
-        placed = abi.decode(manager.unlock(abi.encode(Op.Offer, quote, amount, price)), (uint256));
+        placed = abi.decode(_run(Op.Offer, quote, amount, price), (uint256));
     }
 
-    /// @notice Offer a tranche of tolls against partner `i`, over the token's price in that
-    ///         partner, in the partner's pool with the token. At most once a period for each
-    ///         partner, and the first call for a partner only takes a reading.
-    function deepen(uint256 i) external lock returns (uint256 placed) {
+    function _deepenNow(uint256 i) private returns (uint256 placed) {
         Partner memory p = partners[i];
         Seen memory last = seen[p.asset];
         if (token == address(0) || p.asset == quote || (last.at != 0 && block.timestamp < uint256(last.at) + PERIOD)) {
@@ -511,24 +575,31 @@ contract ContagianVault is IUnlockCallback {
         if (last.at == 0 || amount == 0) return 0;
         // the dearer of this reading and the last: a price pushed down for one call is not used
         if (last.price > price) price = last.price;
-        placed = abi.decode(manager.unlock(abi.encode(Op.Offer, p.asset, amount, price)), (uint256));
+        placed = abi.decode(_run(Op.Offer, p.asset, amount, price), (uint256));
     }
 
-    /// @notice Collect from ranges `from` to `from + n`: what an offer that has sold through
-    ///         sold for (split between the bad beats and the holders), and what the others
-    ///         have earned in fees (Wizards, SQUARE stakers, bad beats). The token side joins
-    ///         the tolls. A partner asset stays in custody here.
-    function harvest(uint256 from, uint256 n) external lock returns (uint256 proceeds, uint256 fees) {
+    function _harvestNow(uint256 from, uint256 n) private returns (uint256 proceeds, uint256 fees) {
         uint256 end = from + n > ranges.length ? ranges.length : from + n;
         if (from >= end) return (0, 0);
-        (proceeds, fees) = abi.decode(manager.unlock(abi.encode(Op.Harvest, address(0), from, end)), (uint256, uint256));
+        (proceeds, fees) = abi.decode(_run(Op.Harvest, address(0), from, end), (uint256, uint256));
         _reflect(proceeds);
         _share(fees);
+    }
+
+    /// @dev Do it inside the pool manager: through its lock, or directly when whoever is
+    ///      transferring the token already holds it open (a buy, mid-swap).
+    function _run(Op op, address other, uint256 amount, uint256 x) private returns (bytes memory) {
+        if (manager.exttload(UNLOCKED_SLOT) != bytes32(0)) return _dispatch(op, other, amount, x);
+        return manager.unlock(abi.encode(op, other, amount, x));
     }
 
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         if (msg.sender != address(manager)) revert Bad();
         (Op op, address other, uint256 amount, uint256 x) = abi.decode(data, (Op, address, uint256, uint256));
+        return _dispatch(op, other, amount, x);
+    }
+
+    function _dispatch(Op op, address other, uint256 amount, uint256 x) private returns (bytes memory) {
         if (op == Op.Settle) return _settle(amount, uint160(x));
         if (op == Op.Offer) return _offer(other, amount, x);
         return _harvest(amount, x);
@@ -656,15 +727,12 @@ contract ContagianVault is IUnlockCallback {
     // ─── who is paid ─────────────────────────────────────────────────────────
 
     /// @notice The token's entry for a toll just paid: `amount` tokens, by `originator`.
-    function credit(address originator, uint256 amount) external {
+    /// @return worth what it was entered at, in the quote
+    function credit(address originator, uint256 amount) external returns (uint256 worth) {
         if (msg.sender != token) revert Bad();
-        uint256 worth = Math.mulDiv(amount, _engine.price, PRICE);
-        if (worth == 0) return;
-        // every burn gets a note: in the logs, and as a call carrying the text. No gas goes with
-        // the call, so a plain wallet receives it and nothing else can run on it.
-        emit Gotchya(originator, amount, worth, GOTCHYA);
-        (bool delivered,) = originator.call{gas: 0}(bytes(GOTCHYA));
-        delivered;
+        worth = Math.mulDiv(amount, _engine.price, PRICE);
+        if (worth == 0) return 0;
+        if (paidBy[originator] == 0 && pendingBy[originator] == 0) payers.push(originator);
         _mature(originator);
         // one waiting entry per originator: paying again before it counts starts its hour again
         pendingBy[originator] += worth;
@@ -694,11 +762,46 @@ contract ContagianVault is IUnlockCallback {
         _holderSettle(b);
     }
 
-    /// @notice The token's call after balances have moved: both start again from where they stand.
+    /// @notice The token's call after balances have moved: both start again from where they
+    ///         stand, and each is sent what it is owed if that is worth sending.
     function holderPost(address a, address b) external {
         if (msg.sender != token) return;
         _holderMark(a);
         _holderMark(b);
+        if (_locked != 0) return;
+        _locked = 1;
+        if (_holds(a) && _owed[a] >= _minPay) _push(a);
+        if (_holds(b) && _owed[b] >= _minPay) _push(b);
+        _locked = 0;
+    }
+
+    /// @notice Send `who` what has been released to them so far. Anyone may call.
+    function payout(address who) external lock {
+        _mature(who);
+        _payout(who);
+    }
+
+    function _payout(address who) private {
+        _payerSettle(who);
+        _roll(_toHolders, circulating());
+        _holderSettle(who);
+        if (_owed[who] >= _minPay) _push(who);
+    }
+
+    /// @dev Pay `who` what they are owed. If the payment will not go through, it stays owed.
+    function _push(address who) private {
+        uint256 amount = _owed[who];
+        _owed[who] = 0;
+        bool ok;
+        if (quote == address(0)) {
+            (ok,) = who.call{value: amount, gas: 30_000}("");
+        } else {
+            bytes memory ret;
+            (ok, ret) = quote.call(abi.encodeCall(IERC20.transfer, (who, amount)));
+            ok = ok && (ret.length == 0 || abi.decode(ret, (bool)));
+        }
+        if (ok) emit Claimed(who, amount);
+        else _owed[who] = amount;
     }
 
     /// @dev A holder is anyone but the zero address, the pools and this vault.

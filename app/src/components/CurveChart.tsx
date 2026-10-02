@@ -4,12 +4,14 @@ import {
   CrosshairMode,
   HistogramSeries,
   LineSeries,
+  LineStyle,
   createChart,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
   type UTCTimestamp,
 } from 'lightweight-charts';
-import {useEffect, useMemo, useRef, useState} from 'react';
+import {useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {price as fmtPrice} from '../lib/format';
 import type {Trade} from '../lib/types';
 
@@ -29,6 +31,7 @@ const C = {
   border: '#2c2a26',
   text: '#8f8a82',
   brass: '#e3a63a',
+  parity: '#c9c3b8',
   up: '#4fd58f',
   down: '#ee6650',
   volUp: 'rgba(79, 213, 143, 0.35)',
@@ -59,13 +62,21 @@ function bucket(trades: Trade[], size: number): Candle[] {
   return out;
 }
 
-/** The price path drawn from the curve's own trades, as candles. Nothing synthetic. */
-export function CurveChart({trades, symbol}: {trades: Trade[]; symbol: string}) {
+/**
+ * The price path drawn from the token's own trades, as candles. Nothing synthetic.
+ *
+ * Prices are in `quote` per token: ETH for curve and Pools tokens, the memequote for a Contagian
+ * token. `parity` draws a dashed line at that price; the scale follows the trades, not the line,
+ * so it shows only when the price is near enough for it to be in view. `headline` sits beside
+ * the price (a Contagian token says how far it is from parity there).
+ */
+export function CurveChart({trades, symbol, quote = 'ETH', parity, headline}: {trades: Trade[]; symbol: string; quote?: string; parity?: number | null; headline?: ReactNode}) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const candles = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volume = useRef<ISeriesApi<'Histogram'> | null>(null);
   const line = useRef<ISeriesApi<'Line'> | null>(null);
+  const parityLines = useRef<Array<{on: ISeriesApi<'Candlestick'> | ISeriesApi<'Line'>; line: IPriceLine}>>([]);
   const [frame, setFrame] = useState<(typeof FRAMES)[number]['s']>(() => {
     try {
       const v = Number(localStorage.getItem('square.frame'));
@@ -146,6 +157,7 @@ export function CurveChart({trades, symbol}: {trades: Trade[]; symbol: string}) 
     volume.current = vs;
     line.current = ls;
     return () => {
+      parityLines.current = [];
       c.remove();
       chart.current = null;
       candles.current = null;
@@ -184,6 +196,21 @@ export function CurveChart({trades, symbol}: {trades: Trade[]; symbol: string}) 
     ls.applyOptions({visible: mode === 'line'});
   }, [series, mode, frame]);
 
+  // Parity, as a line on whichever series is showing. It moves when the peg's price does.
+  useEffect(() => {
+    const cs = candles.current;
+    const ls = line.current;
+    if (!cs || !ls) return;
+    for (const p of parityLines.current) p.on.removePriceLine(p.line);
+    parityLines.current = [];
+    if (!parity || !(parity > 0)) return;
+    const options = {price: parity, color: C.parity, lineWidth: 1 as const, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'parity'};
+    parityLines.current = [
+      {on: cs, line: cs.createPriceLine(options)},
+      {on: ls, line: ls.createPriceLine(options)},
+    ];
+  }, [parity, valid.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (valid.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-ink-700 px-6 text-center text-sm text-ink-500">
@@ -201,13 +228,16 @@ export function CurveChart({trades, symbol}: {trades: Trade[]; symbol: string}) 
   return (
     <div className="overflow-hidden rounded-lg border border-ink-800 bg-ink-900">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 pt-2.5 sm:px-4">
-        <span className="num text-lg font-medium text-ink-100">{fmtPrice(shown.close)} ETH</span>
+        <span className="num text-lg font-medium text-ink-100">
+          {fmtPrice(shown.close)} {quote}
+        </span>
         <span className={`num text-sm ${(hover ? hoverChange : change) >= 0 ? 'text-up-400' : 'text-down-400'}`}>
           {(hover ? hoverChange : change) >= 0 ? '+' : ''}
           {(hover ? hoverChange : change).toFixed(1)}%
         </span>
+        {headline}
         <span className="hidden text-[12px] text-ink-500 sm:inline">
-          {symbol} per unit · {valid.length} trades
+          {quote} per {symbol} · {valid.length} trades
         </span>
         <div className="ml-auto flex items-center gap-1" role="group" aria-label="Candle size">
           {FRAMES.map(f => (
@@ -252,7 +282,10 @@ export function CurveChart({trades, symbol}: {trades: Trade[]; symbol: string}) 
           C <span className="text-ink-300">{fmtPrice(shown.close)}</span>
         </span>
         <span>
-          vol <span className="text-ink-300">{shown.volume.toFixed(4)} ETH</span>
+          vol{' '}
+          <span className="text-ink-300">
+            {shown.volume >= 100 ? shown.volume.toFixed(2) : shown.volume.toFixed(4)} {quote}
+          </span>
         </span>
         <span>
           <span className="text-up-400">{shown.buys} buy</span> · <span className="text-down-400">{shown.sells} sell</span>

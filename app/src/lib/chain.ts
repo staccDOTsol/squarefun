@@ -40,7 +40,14 @@ export const ADDR = deployment as {
   /** Launches through Uniswap's Liquidity Launcher (pools.xyz) with the Square token factory */
   pools?: {launcher: Address; instantStrategy: Address; tokenFactory: Address; settler: Address; venue: Address; deployBlock: number; tokens?: Address[]; tokenFactoryV2?: Address; deployBlockV2?: number; moonFactory?: Address};
   /** ContagianLauncher: one transaction launches a token whose moon is parity. Absent until deployed. */
-  contagian?: {launcher: Address; deployBlock?: number};
+  contagian?: {
+    launcher: Address;
+    /** every launcher, oldest first; new launches go through the last. Absent while there is only `launcher` */
+    launchers?: Address[];
+    deployBlock?: number;
+    /** tokens the site does not show anywhere: not listed, not found by address, and absent from every feed and board */
+    hidden?: Address[];
+  };
   /** MigrateFactory: the pooper scooper. Zero until deployed. */
   migrateFactory?: Address;
   /** ScoopBatch: a whole wallet in one transaction */

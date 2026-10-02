@@ -63,7 +63,8 @@ export function describe(e: Activity): {verb: string; tone: keyof typeof tones; 
   }
 }
 
-const pageOf = (e: Activity) => (e.family === 'contagian' ? `/contagian/${e.token}` : `/t/${e.token}`);
+/** Every token has one page, whatever launched it. */
+const pageOf = (e: Activity) => `/t/${e.token}`;
 /** Events whose `who` is a wallet worth linking; the others name an asset or the vault. */
 const hasWallet = (e: Activity) => e.kind !== 'offer' && e.kind !== 'harvest' && e.kind !== 'reflect' && e.kind !== 'yield' && e.kind !== 'launch' && e.kind !== 'gotchya';
 

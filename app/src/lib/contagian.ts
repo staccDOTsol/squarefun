@@ -1,5 +1,6 @@
-import {encodeAbiParameters, getAddress, isAddress, keccak256, parseAbi, parseEventLogs, type Address, type WalletClient} from 'viem';
-import {ADDR, ZERO, publicClient, robinhood} from './chain';
+import {encodeAbiParameters, getAddress, isAddress, keccak256, parseAbi, parseEventLogs, type Address, type Hex, type WalletClient} from 'viem';
+import {ADDR, ZERO, getLogsChunked, logTimestamp, publicClient, robinhood} from './chain';
+import type {Launch, Trade} from './types';
 
 /**
  * Contagian: a token standard, not one token. A memecoin that tends to its peg. A launch names a
@@ -11,9 +12,20 @@ import {ADDR, ZERO, publicClient, robinhood} from './chain';
  * wallets that paid the tax) and to holders.
  */
 
-export const LAUNCHER = ADDR.contagian?.launcher;
-/** The launcher address is filled in after deployment; until then the page reads nothing. */
-export const contagianDeployed = !!LAUNCHER && LAUNCHER !== ZERO;
+/** Every Contagian launcher, oldest first. The list is filled in after deployment; until then the site reads nothing. */
+export const LAUNCHERS: Address[] = (ADDR.contagian?.launchers?.length ? ADDR.contagian.launchers : ADDR.contagian?.launcher ? [ADDR.contagian.launcher] : []).filter(a => a !== ZERO);
+/** Where new launches go: the newest launcher. */
+export const LAUNCHER: Address | undefined = LAUNCHERS[LAUNCHERS.length - 1];
+export const contagianDeployed = LAUNCHERS.length > 0;
+
+/**
+ * Tokens the site does not show. This is the one place that knows: the readers below leave a
+ * hidden token out of the list and answer "not one of ours" for its address, and the activity
+ * read drops its launch and everything its vault and its pool emit, so no feed, ticker or
+ * leaderboard needs to ask.
+ */
+const HIDDEN = new Set((ADDR.contagian?.hidden ?? []).map(a => a.toLowerCase()));
+export const isHidden = (token: string) => HIDDEN.has(token.toLowerCase());
 
 export const USDG: Address = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168';
 /** Uniswap v4 StateView on Robinhood: pool reads without going through the manager's storage. */
@@ -33,6 +45,9 @@ const LN_TICK = Math.log(1.0001);
 export const DEFAULT_MULTIPLE = 145_000;
 /** The vault's `DRIP`, in seconds, for copy shown before any vault exists to ask. Every vault is asked for its own. */
 export const DEFAULT_DRIP = 3600;
+
+/** A share of parity: three figures under 10%, since a launch opens at a thousandth of a percent of it. */
+export const ofParity = (pct: number) => `${pct >= 10 ? pct.toFixed(1) : pct.toLocaleString(undefined, {maximumSignificantDigits: 3})}%`;
 
 /** A span of seconds in words: "an hour", "a week", "36 hours". */
 export function span(seconds: number): string {
@@ -89,6 +104,12 @@ export const vaultAbi = parseAbi([
   'function totalPaid() view returns (uint256)',
   'function DRIP() view returns (uint256)',
   'function GOTCHYA() view returns (string)',
+  'function WIZARDS_BPS() view returns (uint256)',
+  'function STAKERS_BPS() view returns (uint256)',
+  // the second version only: it keeps a list of who it owes, pays them out by itself, and runs its chores inside transfers
+  'function payerCount() view returns (uint256)',
+  'function payers(uint256 index) view returns (address)',
+  'function payout(address who)',
   'function shareBps(address who) view returns (uint256)',
   'function claimable(address who) view returns (uint256 asPayer, uint256 asHolder)',
   'function claim() returns (uint256 amount)',
@@ -108,7 +129,40 @@ const metaAbi = parseAbi([
   'function name() view returns (string)',
   'function symbol() view returns (string)',
   'function decimals() view returns (uint8)',
+  'function metadata() view returns (string description, string website, string image, uint256 xProofTweetId)',
 ]);
+
+/** The token's own event for every counted transfer: it names the wallet on each side of a swap, where the pool names only the router. */
+export const referenceEvent = parseAbi(['event Reference(address indexed from, address indexed to, uint256 n, uint256 fee)'])[0];
+/** Uniswap v4's swap event, on the PoolManager. Amounts are the swapper's: negative is paid in, positive is taken out. */
+export const swapEvent = parseAbi([
+  'event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)',
+])[0];
+/** Every Contagian token's pool: the token against its memequote, 0.25%, spacing 25, no hook. */
+const POOL_FEE = 2500;
+
+/** A token's pool with its memequote: its id (the vault's `poolId()`), and which side the token sorts to. */
+export function poolOf(token: Address, quote: Address): {id: Hex; tokenIs0: boolean} {
+  const tokenIs0 = token.toLowerCase() < quote.toLowerCase();
+  const [c0, c1] = tokenIs0 ? [token, quote] : [quote, token];
+  const id = keccak256(
+    encodeAbiParameters(
+      [{type: 'address'}, {type: 'address'}, {type: 'uint24'}, {type: 'int24'}, {type: 'address'}],
+      [c0, c1, POOL_FEE, TICK_SPACING, ZERO],
+    ),
+  );
+  return {id, tokenIs0};
+}
+
+/** One swap in a token's pool, read as a trade of the token: the memequote paid in is a buy. Raw units. */
+export function swapSides(tokenIs0: boolean, amount0: bigint, amount1: bigint): {buy: boolean; quoteRaw: bigint; tokensRaw: bigint} {
+  const abs = (x: bigint) => (x < 0n ? -x : x);
+  const quote = tokenIs0 ? amount1 : amount0;
+  return {buy: quote < 0n, quoteRaw: abs(quote), tokensRaw: abs(tokenIs0 ? amount0 : amount1)};
+}
+
+/** How far back a token's chart reads its pool's swaps on first load: about three and a half days of 250 ms blocks. */
+const CHART_LOOKBACK = 1_200_000n;
 
 export type Asset = {address: Address; symbol: string; decimals: number};
 export const ETH_ASSET: Asset = {address: ZERO, symbol: 'ETH', decimals: 18};
@@ -254,12 +308,62 @@ export type ContagianLaunch = {
   sellBps: number | null;
   /** tokens the vault holds */
   tolls: number | null;
+  /** from the token's own metadata, fixed at launch */
+  image: string;
+  description: string;
+  /**
+   * Whether the vault looks after itself (the second version): its chores run inside transfers
+   * and what it owes is sent without being asked for. False for a first-version vault, where
+   * somebody calls the chores and each wallet claims.
+   */
+  selfRunning: boolean;
+  /** of the fees the vault's offers earn: the Stacc Wizards' and the SQUARE stakers' shares, in basis points; the rest is the bad beats' */
+  wizardsBps: number;
+  stakersBps: number;
 };
+
+/**
+ * A Contagian launch in the shape the board's cards take. Its price is in its memequote, so the
+ * ETH figures are zero unless the memequote is ETH; the card reads `contagian` instead.
+ */
+export function asLaunch(c: ContagianLaunch, tradeCount = 0): Launch {
+  const inEth = same(c.quote.address, ZERO);
+  return {
+    token: c.token,
+    curve: c.token,
+    kind: 'contagian',
+    name: c.name,
+    symbol: c.symbol,
+    image: c.image,
+    description: c.description,
+    creator: c.creator,
+    createdAt: c.launchedAt,
+    createdBlock: 0n,
+    phase: 'pool',
+    quoteReserve: 0,
+    graduationThreshold: 0,
+    priceEth: inEth ? (c.spot ?? 0) : 0,
+    marketCapEth: inEth ? (c.spot ?? 0) * CONTAGIAN_SUPPLY : 0,
+    referencesThisBlock: 0,
+    squarePaid: 0,
+    tradeCount,
+    factory: LAUNCHER ?? ZERO,
+    twoRatchets: true,
+    socials: {website: 'https://squarefun.xyz/contagian'},
+    contagian: {
+      quoteSymbol: c.quote.symbol,
+      pegSymbol: c.peg.symbol,
+      price: c.spot,
+      parityPct: c.spot !== null && c.parity !== null && c.parity > 0 ? (c.spot / c.parity) * 100 : null,
+    },
+  };
+}
 
 type Row = {token: Address; vault: Address; creator: Address; quote: Address; peg: Address; openTick: number; ceilingTick: number; launchedAt: bigint};
 
-const fixedFacts = new Map<string, Promise<{name: string; symbol: string; drip: number; gotchya: string}>>();
-/** What a launch fixed for good: its name and ticker, the vault's window, and the note it sends whoever pays the tax. Read once per page view. */
+type Fixed = {name: string; symbol: string; drip: number; gotchya: string; image: string; description: string; selfRunning: boolean; wizardsBps: number; stakersBps: number};
+const fixedFacts = new Map<string, Promise<Fixed>>();
+/** What a launch fixed for good: its name, ticker, image and description, the vault's window, and the note it sends whoever pays the tax. Read once per page view. */
 function fixed(r: Pick<Row, 'token' | 'vault'>) {
   const k = r.token.toLowerCase();
   let hit = fixedFacts.get(k);
@@ -269,7 +373,15 @@ function fixed(r: Pick<Row, 'token' | 'vault'>) {
       publicClient.readContract({address: r.token, abi: metaAbi, functionName: 'symbol'}),
       publicClient.readContract({address: r.vault, abi: vaultAbi, functionName: 'DRIP'}).then(Number).catch(() => DEFAULT_DRIP),
       publicClient.readContract({address: r.vault, abi: vaultAbi, functionName: 'GOTCHYA'}).catch(() => ''),
-    ]).then(([name, symbol, drip, gotchya]) => ({name, symbol, drip, gotchya}));
+      publicClient.readContract({address: r.token, abi: metaAbi, functionName: 'metadata'}).catch(() => ['', '', '', 0n] as const),
+      // only the second version's vault keeps a list of who it owes; the first version's reverts here
+      publicClient
+        .readContract({address: r.vault, abi: vaultAbi, functionName: 'payerCount'})
+        .then(() => true)
+        .catch(() => false),
+      publicClient.readContract({address: r.vault, abi: vaultAbi, functionName: 'WIZARDS_BPS'}).then(Number).catch(() => 2500),
+      publicClient.readContract({address: r.vault, abi: vaultAbi, functionName: 'STAKERS_BPS'}).then(Number).catch(() => 2500),
+    ]).then(([name, symbol, drip, gotchya, meta, selfRunning, wizardsBps, stakersBps]) => ({name, symbol, drip, gotchya, description: meta[0], image: meta[2], selfRunning, wizardsBps, stakersBps}));
     hit.catch(() => fixedFacts.delete(k));
     fixedFacts.set(k, hit);
   }
@@ -282,7 +394,7 @@ const rows = new Map<string, Row>();
 async function hydrate(r: Row): Promise<ContagianLaunch> {
   rows.set(r.token.toLowerCase(), r);
   const read = <F extends 'spot' | 'parity' | 'tolls' | 'taxBps'>(functionName: F) => publicClient.readContract({address: r.vault, abi: vaultAbi, functionName});
-  const [{name, symbol, drip}, quote, peg, stats] = await Promise.all([
+  const [{name, symbol, drip, image, description, selfRunning, wizardsBps, stakersBps}, quote, peg, stats] = await Promise.all([
     fixed(r),
     assetOf(r.quote),
     assetOf(r.peg).catch(() => ({address: r.peg, symbol: `${r.peg.slice(0, 6)}…`, decimals: 18})),
@@ -308,7 +420,31 @@ async function hydrate(r: Row): Promise<ContagianLaunch> {
     tolls: stats ? Number(stats[2]) / 1e18 : null,
     buyBps: stats ? Number(stats[3][0]) : null,
     sellBps: stats ? Number(stats[3][1]) : null,
+    image,
+    description,
+    selfRunning,
+    wizardsBps,
+    stakersBps,
   };
+}
+
+/** The launch a token came from, asked of each launcher, newest first: each reverts for a token it did not make. */
+async function rowOf(token: Address): Promise<Row | null> {
+  const known = rows.get(token.toLowerCase());
+  if (known) return known;
+  let failed: unknown = null;
+  for (let i = LAUNCHERS.length - 1; i >= 0; i--) {
+    try {
+      const row = await publicClient.readContract({address: LAUNCHERS[i], abi: launcherAbi, functionName: 'launchOf', args: [token]});
+      rows.set(token.toLowerCase(), row);
+      return row;
+    } catch (e) {
+      // a launcher saying no is an answer; anything else (a dropped connection) is not
+      if (!/revert/i.test(e instanceof Error ? e.message : '')) failed = e;
+    }
+  }
+  if (failed) throw failed;
+  return null;
 }
 
 export type ContagianDetail = ContagianLaunch & {
@@ -338,32 +474,95 @@ export type ContagianWallet = {
 };
 
 export const contagian = {
-  /** Launches, newest first, at most `cap`. */
-  async list(cap = 50): Promise<ContagianLaunch[]> {
-    if (!contagianDeployed) return [];
-    const count = Number(await publicClient.readContract({address: LAUNCHER!, abi: launcherAbi, functionName: 'count'}));
-    const indexes = Array.from({length: Math.min(count, cap)}, (_, i) => BigInt(count - 1 - i));
-    return Promise.all(
-      indexes.map(async i => {
-        const [token, vault, creator, quote, peg, openTick, ceilingTick, launchedAt] = await publicClient.readContract({
-          address: LAUNCHER!,
-          abi: launcherAbi,
-          functionName: 'launches',
-          args: [i],
-        });
-        return hydrate({token, vault, creator, quote, peg, openTick, ceilingTick, launchedAt});
-      }),
-    );
+  /**
+   * Whether a launcher made `token` and the site shows it: what `/t/<token>` asks to pick its
+   * page. One read a launcher, and none for a token already seen. A read that fails for any reason
+   * but a launcher saying no (it reverts for a token it did not make) is thrown, so a dropped
+   * connection is not taken for "no". A hidden token is not one of ours.
+   */
+  async is(token: Address): Promise<boolean> {
+    if (!contagianDeployed || isHidden(token)) return false;
+    return (await rowOf(token)) !== null;
+  },
+
+  /** Current chain head. */
+  head(): Promise<bigint> {
+    return publicClient.getBlockNumber();
+  },
+
+  /** The first block a token's chart reads on first load: the lookback, or the launcher's deploy block if that is nearer. */
+  chartFrom(head: bigint): bigint {
+    const floor = BigInt(ADDR.contagian?.deployBlock ?? ADDR.deployBlock);
+    const back = head > CHART_LOOKBACK ? head - CHART_LOOKBACK : 0n;
+    return back > floor ? back : floor;
   },
 
   /**
-   * One launch by its token, with its live numbers. Null for a token this launcher did not make
-   * (the read reverts). The launcher is asked which launch it is once; after that only the vault is read.
+   * The swaps in a token's pool over a block range, as trades in its memequote: what the chart
+   * and the trades table are drawn from. `who` is the swap's sender, which is usually a router.
+   */
+  async trades(l: Pick<ContagianLaunch, 'token' | 'quote'>, range: {from: bigint; to: bigint}): Promise<Trade[]> {
+    if (range.from > range.to) return [];
+    const {id, tokenIs0} = poolOf(l.token, l.quote.address);
+    const logs = await getLogsChunked(
+      (a, b) => publicClient.getLogs({address: ADDR.poolManager, event: swapEvent, args: {id}, fromBlock: a, toBlock: b}),
+      range.from,
+      range.to,
+    );
+    const stamps = await Promise.all(logs.map(logTimestamp));
+    return logs.map((log, i) => {
+      const {buy, quoteRaw, tokensRaw} = swapSides(tokenIs0, log.args.amount0 ?? 0n, log.args.amount1 ?? 0n);
+      const quote = Number(quoteRaw) / 10 ** l.quote.decimals;
+      const tokens = Number(tokensRaw) / 1e18;
+      return {
+        ts: stamps[i],
+        block: log.blockNumber,
+        side: buy ? 'buy' : 'sell',
+        quote,
+        tokens,
+        price: tokens ? quote / tokens : 0,
+        fee: (quote * POOL_FEE) / 1_000_000,
+        who: log.args.sender!,
+        tx: log.transactionHash,
+      };
+    });
+  },
+
+  /** Launches from every launcher, newest first, at most `cap`. Hidden tokens are left out. */
+  async list(cap = 50): Promise<ContagianLaunch[]> {
+    if (!contagianDeployed) return [];
+    const found = await Promise.all(
+      LAUNCHERS.map(async launcher => {
+        const count = Number(await publicClient.readContract({address: launcher, abi: launcherAbi, functionName: 'count'}));
+        const indexes = Array.from({length: Math.min(count, cap)}, (_, i) => BigInt(count - 1 - i));
+        return Promise.all(
+          indexes.map(async i => {
+            const [token, vault, creator, quote, peg, openTick, ceilingTick, launchedAt] = await publicClient.readContract({
+              address: launcher,
+              abi: launcherAbi,
+              functionName: 'launches',
+              args: [i],
+            });
+            return {token, vault, creator, quote, peg, openTick, ceilingTick, launchedAt};
+          }),
+        );
+      }),
+    );
+    const shown = found
+      .flat()
+      .filter(r => !isHidden(r.token))
+      .sort((a, b) => (a.launchedAt === b.launchedAt ? 0 : a.launchedAt < b.launchedAt ? 1 : -1))
+      .slice(0, cap);
+    return Promise.all(shown.map(hydrate));
+  },
+
+  /**
+   * One launch by its token, with its live numbers. Null for a token no launcher made, and for
+   * a hidden one. The launchers are asked which launch it is once; after that only the vault is read.
    */
   async one(token: Address): Promise<ContagianDetail | null> {
-    if (!contagianDeployed) return null;
-    const row =
-      rows.get(token.toLowerCase()) ?? (await publicClient.readContract({address: LAUNCHER!, abi: launcherAbi, functionName: 'launchOf', args: [token]}).catch(() => null));
+    if (!contagianDeployed || isHidden(token)) return null;
+    const row = await rowOf(token).catch(() => null);
     if (!row) return null;
     const [l, {gotchya}, partnerCount, rangeCount, totalPaid] = await Promise.all([
       hydrate(row),
@@ -467,6 +666,13 @@ export const contagianTx = {
   },
 
   /** Anyone may start a matured entry earning; the page offers it for the connected wallet's own. */
+  /** The second version only: send `who` what has been released to them so far. Anyone may call. */
+  async payout(w: WalletClient, account: Address, vault: Address, who: Address) {
+    const hash = await w.writeContract({chain: robinhood, account, address: vault, abi: vaultAbi, functionName: 'payout', args: [who]});
+    await publicClient.waitForTransactionReceipt({hash});
+    return hash;
+  },
+
   async activate(w: WalletClient, account: Address, vault: Address, who: Address) {
     const hash = await w.writeContract({chain: robinhood, account, address: vault, abi: vaultAbi, functionName: 'activate', args: [who]});
     await publicClient.waitForTransactionReceipt({hash});

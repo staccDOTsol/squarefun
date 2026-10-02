@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useSyncExternalStore} from 'react';
 import {formatEther, parseAbi, type Address, type Hex} from 'viem';
 import {ADDR, blockTimestamp, curveAbi, once, publicClient, scan, tokenAbi} from './chain';
-import {LAUNCHER, assetOf, contagianDeployed, launcherAbi, vaultEventAbi, type Asset} from './contagian';
+import {LAUNCHERS, assetOf, contagianDeployed, isHidden, launcherAbi, poolOf, referenceEvent, swapEvent, swapSides, vaultEventAbi, type Asset} from './contagian';
 import {data} from './data';
 import {useLive} from './live';
 
@@ -64,6 +64,8 @@ interface Snapshot {
   squareFees: Record<string, Record<string, number>>;
   /** tax paid in total, earning or not, in the memequote: vault (lowercase) → originator (lowercase) → amount */
   contagianPaid: Record<string, Record<string, number>>;
+  /** swaps in each Contagian token's pool since the launcher was deployed: token (lowercase) → count */
+  contagianSwaps: Record<string, number>;
   vaults: VaultInfo[];
 }
 
@@ -274,29 +276,41 @@ type RawLaunch = {id: string; tx: Hex; block: number; ts: number; token: Address
 type VaultEvent = 'Paid' | 'Settled' | 'Offered' | 'Harvested' | 'Reflected' | 'Yield' | 'Claimed';
 type RawVault = {id: string; tx: Hex; block: number; ts: number; vault: string; name: VaultEvent; who: Address | null; x: bigint[]; sold?: boolean};
 type VaultState = {recent: RawVault[]; paid: Record<string, Record<string, bigint>>};
+type RawSwap = {id: string; tx: Hex; block: number; ts: number; token: Address; buy: boolean; quoteRaw: bigint; tokensRaw: bigint; sender: Address};
+type SwapState = {recent: RawSwap[]; counts: Record<string, number>};
+type RawParty = {tx: Hex; block: number; token: string; from: Address; to: Address};
+type ContagianRead = {events: Activity[]; paid: Snapshot['contagianPaid']; swaps: Snapshot['contagianSwaps']; vaults: VaultInfo[]};
+const noContagian: ContagianRead = {events: [], paid: {}, swaps: {}, vaults: []};
 
 let contagianFrom: bigint | null = null;
+/** Every launcher, as one scan key: a launcher added later starts the scans again from the first block. */
+const ALL = LAUNCHERS.join();
 
-async function readContagian(to: bigint): Promise<{events: Activity[]; paid: Snapshot['contagianPaid']; vaults: VaultInfo[]}> {
-  if (!contagianDeployed) return {events: [], paid: {}, vaults: []};
+async function readContagian(to: bigint): Promise<ContagianRead> {
+  if (!contagianDeployed) return noContagian;
   if (contagianFrom === null) {
     const floor = to > CONTAGIAN_LOOKBACK ? to - CONTAGIAN_LOOKBACK : 0n;
     contagianFrom = ADDR.contagian?.deployBlock !== undefined ? BigInt(ADDR.contagian.deployBlock) : floor;
   }
   const from = contagianFrom;
   const launches = await scan({
-    key: `act1:contagian-launched:${LAUNCHER}`,
-    read: (a, b) => publicClient.getLogs({address: LAUNCHER!, event: launcherAbi[0], fromBlock: a, toBlock: b}),
+    key: `act1:contagian-launched:${ALL}`,
+    read: (a, b) => publicClient.getLogs({address: LAUNCHERS, event: launcherAbi[0], fromBlock: a, toBlock: b}),
+    addresses: LAUNCHERS.length,
     from,
     to,
     init: [] as RawLaunch[],
     fold: (acc, logs) => [...acc, ...logs.map(l => ({...head(l), token: l.args.token!, vault: l.args.vault!, creator: l.args.creator!, quote: l.args.quote!}))],
   });
-  if (launches.length === 0) return {events: [], paid: {}, vaults: []};
+  if (launches.length === 0) return noContagian;
   const vaults = launches.map(l => l.vault);
-  const [state, infos] = await Promise.all([
+  const tokens = launches.map(l => l.token);
+  // each token's pool with its memequote: the swaps in it are its buys and sells
+  const pools = new Map(launches.map(l => [poolOf(l.token, l.quote).id.toLowerCase(), {token: l.token, tokenIs0: poolOf(l.token, l.quote).tokenIs0}]));
+  const manager = ADDR.poolManager.toLowerCase();
+  const [state, swaps, parties, infos] = await Promise.all([
     scan({
-      key: `act2:contagian-vaults:${LAUNCHER}`,
+      key: `act2:contagian-vaults:${ALL}`,
       read: (a, b) => publicClient.getLogs({address: vaults, events: vaultEventAbi, fromBlock: a, toBlock: b}),
       addresses: vaults.length,
       from,
@@ -331,15 +345,74 @@ async function readContagian(to: bigint): Promise<{events: Activity[]; paid: Sna
         return {recent: trim([...acc.recent, ...fresh], r => r.vault), paid};
       },
     }),
-    Promise.all(launches.map(async l => ({token: l.token, vault: l.vault, symbol: await symbolOf(l.token), quote: await assetOf(l.quote)}))),
+    scan({
+      key: `act1:contagian-swaps:${ALL}`,
+      read: (a, b) => publicClient.getLogs({address: ADDR.poolManager, event: swapEvent, args: {id: [...pools.keys()] as Hex[]}, fromBlock: a, toBlock: b}),
+      from,
+      to,
+      init: {recent: [], counts: {}} as SwapState,
+      fold: (acc, logs) => {
+        const counts = {...acc.counts};
+        const fresh: RawSwap[] = [];
+        for (const l of logs) {
+          const pool = pools.get((l.args.id ?? '').toLowerCase());
+          if (!pool) continue;
+          const k = pool.token.toLowerCase();
+          counts[k] = (counts[k] ?? 0) + 1;
+          fresh.push({...head(l), token: pool.token, ...swapSides(pool.tokenIs0, l.args.amount0 ?? 0n, l.args.amount1 ?? 0n), sender: l.args.sender!});
+        }
+        return {recent: trim([...acc.recent, ...fresh], r => r.token), counts};
+      },
+    }),
+    // the token's own transfers in and out of the pool manager: they name the wallet a swap was for
+    scan({
+      key: `act1:contagian-parties:${ALL}`,
+      read: (a, b) => publicClient.getLogs({address: tokens, event: referenceEvent, fromBlock: a, toBlock: b}),
+      addresses: tokens.length,
+      from,
+      to,
+      init: [] as RawParty[],
+      fold: (acc, logs) =>
+        trim(
+          [
+            ...acc,
+            ...logs.flatMap(l => {
+              const src = l.args.from!;
+              const dest = l.args.to!;
+              if (src.toLowerCase() !== manager && dest.toLowerCase() !== manager) return [];
+              const row: RawParty = {tx: l.transactionHash, block: Number(l.blockNumber), token: l.address.toLowerCase(), from: src, to: dest};
+              return [row];
+            }),
+          ],
+          r => r.token,
+          PER_TOKEN * 2,
+          TOTAL * 2,
+        ),
+    }),
+    // A hidden token is read like any other (so nothing is missing if it is shown again) and
+    // dropped here: everything below is keyed by these, so its launch, its vault's events, its
+    // swaps and its totals never reach a feed, the ticker or a leaderboard.
+    Promise.all(launches.filter(l => !isHidden(l.token)).map(async l => ({token: l.token, vault: l.vault, symbol: await symbolOf(l.token), quote: await assetOf(l.quote)}))),
   ]);
   const info = new Map(infos.map(i => [i.vault.toLowerCase(), i]));
   // the asset a tranche was offered against, or a range was collected in: named and sized, not shown as an address
   const others = [...new Set(state.recent.filter(r => (r.name === 'Offered' || r.name === 'Harvested') && r.who).map(r => r.who!))];
   const named = new Map(await Promise.all(others.map(async a => [a.toLowerCase(), await assetOf(a).catch(() => null)] as const)));
 
-  const [recent, launched] = await Promise.all([stamped(state.recent), stamped(launches)]);
-  const events: Activity[] = launched.map(l => ({
+  const [recent, launched, swapped] = await Promise.all([stamped(state.recent), stamped(launches), stamped(swaps.recent)]);
+  // The wallet behind a swap: whoever the vault entered the tax against in that transaction, when
+  // it took any; else the wallet the token moved to or from; else the swap's sender (a router).
+  const burned = new Map(state.recent.filter(r => r.name === 'Paid' && r.who).map(r => [`${r.tx}:${r.vault}`, r.who!]));
+  const party = new Map<string, {buyer?: Address; seller?: Address}>();
+  for (const r of parties) {
+    const k = `${r.tx}:${r.token}`;
+    const p = party.get(k) ?? {};
+    if (r.from.toLowerCase() === manager) p.buyer = r.to;
+    else p.seller = r.from;
+    party.set(k, p);
+  }
+  const byToken = new Map(infos.map(i => [i.token.toLowerCase(), i]));
+  const events: Activity[] = launched.filter(l => info.has(l.vault.toLowerCase())).map(l => ({
     id: l.id,
     ts: l.ts,
     block: BigInt(l.block),
@@ -377,6 +450,25 @@ async function readContagian(to: bigint): Promise<{events: Activity[]; paid: Sna
       events.push({...base, kind: 'yield', who: i.vault, amountTokens: 0, worth: q(r.x[0] + r.x[1] + r.x[2]), parts: {wizards: q(r.x[0]), stakers: q(r.x[1]), payers: q(r.x[2])}});
     else if (r.name === 'Claimed') events.push({...base, kind: 'claim', who: r.who!, amountTokens: 0, worth: q(r.x[0])});
   }
+  for (const s of swapped) {
+    const i = byToken.get(s.token.toLowerCase());
+    if (!i) continue;
+    const p = party.get(`${s.tx}:${s.token.toLowerCase()}`);
+    events.push({
+      id: s.id,
+      ts: s.ts,
+      block: BigInt(s.block),
+      token: i.token,
+      tokenSymbol: i.symbol,
+      kind: s.buy ? 'buy' : 'sell',
+      who: burned.get(`${s.tx}:${i.vault.toLowerCase()}`) ?? (s.buy ? p?.buyer : p?.seller) ?? s.sender,
+      amountTokens: f(s.tokensRaw),
+      worth: Number(s.quoteRaw) / 10 ** i.quote.decimals,
+      quoteSymbol: i.quote.symbol,
+      txHash: s.tx,
+      family: 'contagian',
+    });
+  }
   const paid: Snapshot['contagianPaid'] = {};
   for (const [vault, by] of Object.entries(state.paid)) {
     const i = info.get(vault);
@@ -384,7 +476,7 @@ async function readContagian(to: bigint): Promise<{events: Activity[]; paid: Sna
     const unit = 10 ** i.quote.decimals;
     paid[vault] = Object.fromEntries(Object.entries(by).map(([who, v]) => [who, Number(v) / unit]));
   }
-  return {events, paid, vaults: infos};
+  return {events, paid, swaps: Object.fromEntries(Object.entries(swaps.counts).filter(([token]) => byToken.has(token))), vaults: infos};
 }
 
 // ─── the store: one snapshot, one poller ──────────────────────────────────
@@ -397,6 +489,7 @@ let snapshot: Snapshot = {
   error: {},
   squareFees: {},
   contagianPaid: {},
+  contagianSwaps: {},
   vaults: [],
 };
 const listeners = new Set<() => void>();
@@ -440,6 +533,7 @@ async function read() {
   if (ctg.status === 'fulfilled') {
     kept = {...kept, contagian: ctg.value.events};
     next.contagianPaid = ctg.value.paid;
+    next.contagianSwaps = ctg.value.swaps;
     next.vaults = ctg.value.vaults;
     next.status.contagian = 'ready';
     delete next.error.contagian;
@@ -493,7 +587,7 @@ export function statusOf(s: Snapshot, family?: Family): {status: Status; error?:
 
 /**
  * The feed: every event on the site, or one token's, newest first. `beat` goes up on every
- * successful read, whether or not anything new arrived.
+ * successful read, whether or not anything new arrived. `swaps` counts each Contagian token's trades.
  */
 export function useActivity(o: {token?: string; family?: Family} = {}) {
   const s = useActivityStore();
@@ -503,7 +597,7 @@ export function useActivity(o: {token?: string; family?: Family} = {}) {
     () => s.events.filter(e => (!token || e.token.toLowerCase() === token) && (!family || e.family === family)),
     [s.events, token, family],
   );
-  return {events, beat: s.beat, ...statusOf(s, family), retry: () => void pump(true)};
+  return {events, beat: s.beat, swaps: s.contagianSwaps, ...statusOf(s, family), retry: () => void pump(true)};
 }
 
 /**

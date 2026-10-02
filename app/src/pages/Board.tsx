@@ -7,6 +7,7 @@ import {Input} from '../components/ui/Field';
 import {Badge, Empty, ErrorBox, Progress, Tabs} from '../components/ui/Bits';
 import {Flash} from '../components/ui/Live';
 import {useActivity} from '../lib/activity';
+import {asLaunch, contagian} from '../lib/contagian';
 import {useSquareLeadersAll} from '../lib/leaders';
 import {BRAND} from '../lib/brand';
 import {data} from '../lib/data';
@@ -26,24 +27,25 @@ export function Board() {
   const [sort, setSort] = useState<Sort>('activity');
   const [shown, setShown] = useState(PAGE);
 
+  // every launch on the site: the pad's and Pools', and Contagian tokens beside them. A failure reading Contagian must not empty the board.
+  const reload = useCallback(async () => {
+    const [square, ctg] = await Promise.all([data.launches(), contagian.list().catch(() => [])]);
+    setLaunches([...square, ...ctg.map(c => asLaunch(c))]);
+  }, []);
   const load = () => {
     setError(null);
     setLaunches(null);
-    data
-      .launches()
-      .then(setLaunches)
-      .catch(e => setError(e instanceof Error ? e.message : 'Could not read the chain'));
+    reload().catch(e => setError(e instanceof Error ? e.message : 'Could not read the chain'));
   };
-  useEffect(load, []);
+  useEffect(load, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [rail, setRail] = useState<'activity' | 'leaders'>('activity');
 
   // Live: re-read the board in the background; the list swaps in place, no skeleton. The shared
   // activity read says when a trade or a fee has landed, and the board is read again the moment
   // one does; without one it is read every few seconds, for launches and phases.
-  const reload = useCallback(async () => setLaunches(await data.launches()), []);
   useLive(reload, 5000, launches !== null);
   const activity = useActivity();
-  const newest = activity.events.find(e => e.family === 'square')?.id;
+  const newest = activity.events[0]?.id;
   const told = useRef<string | undefined>(undefined);
   useEffect(() => {
     const before = told.current;
@@ -55,20 +57,22 @@ export function Board() {
   const prices = useMemo(() => Object.fromEntries((launches ?? []).map(l => [l.token.toLowerCase(), l.priceEth])), [launches]);
   const leaders = useSquareLeadersAll(prices);
 
+  const swaps = activity.swaps;
   const list = useMemo(() => {
     if (!launches) return [];
     const needle = q.trim().toLowerCase();
     let l = launches.filter(x => (feed === 'all' ? true : feed === 'curve' ? x.phase === 'curve' : x.phase !== 'curve'));
     if (needle) l = l.filter(x => x.name.toLowerCase().includes(needle) || x.symbol.toLowerCase().includes(needle) || x.token.toLowerCase().includes(needle));
     const key: Record<Sort, (x: Launch) => number> = {
-      activity: x => x.tradeCount,
+      // a Contagian token's trades are the swaps in its pool, counted by the activity read
+      activity: x => (x.kind === 'contagian' ? swaps[x.token.toLowerCase()] ?? 0 : x.tradeCount),
       created: x => x.createdAt,
       marketCap: x => x.marketCapEth,
       progress: x => (x.graduationThreshold ? x.quoteReserve / x.graduationThreshold : 0),
       square: x => x.squarePaid,
     };
     return [...l].sort((a, b) => key[sort](b) - key[sort](a));
-  }, [launches, q, feed, sort]);
+  }, [launches, q, feed, sort, swaps]);
 
   const king = launches ? [...launches].filter(x => x.phase === 'curve').sort((a, b) => b.quoteReserve - a.quoteReserve)[0] ?? null : null;
   // the newest launch made through Pools, which is where launches go now
@@ -229,7 +233,7 @@ export function Board() {
           <>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {list.slice(0, shown).map((l, i) => (
-                <TokenCard key={l.token} l={l} index={i} />
+                <TokenCard key={l.token} l={l.kind === 'contagian' ? {...l, tradeCount: swaps[l.token.toLowerCase()] ?? 0} : l} index={i} />
               ))}
             </div>
             {list.length > shown && (

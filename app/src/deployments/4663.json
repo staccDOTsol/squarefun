@@ -66,10 +66,24 @@
     "jar": "0xda0b8EF9E8f1E34217C4175f0AEf9AAEdedba8e7"
   },
   "contagian": {
-    "launcher": "0x62924A07935B49b487162b9aabcf7a9C35fc8531",
-    "strategy": "0xDBbBF22a02D44A47B88aF4e907F6254CA0933c84",
-    "vaultImplementation": "0x8867cb4adbeB2CE26D27410d9437E2D51FaE94ea",
-    "tokenFactory": "0x957FAd3C7879278B03ae90735b0D8F6300Dd29f7",
-    "deployBlock": 78447180
+    "launcher": "0xb649955A1eADe63125e51367115b1638bF9A134e",
+    "strategy": "0x28d1b307c485b2BBf9F5F06D83759E93a6b62f14",
+    "vaultImplementation": "0xe9681B6cCe47019E1467E8d7ADE732818E9fDb44",
+    "tokenFactory": "0x58aAC50568Fc68c95AC34BCCaD003F99BC1D394B",
+    "deployBlock": 78447180,
+    "hidden": [
+      "0x24463a7b02b2a46701E985a207E9005DD3cF81f5"
+    ],
+    "launchers": [
+      "0x62924A07935B49b487162b9aabcf7a9C35fc8531",
+      "0xb649955A1eADe63125e51367115b1638bF9A134e"
+    ],
+    "first": {
+      "launcher": "0x62924A07935B49b487162b9aabcf7a9C35fc8531",
+      "strategy": "0xDBbBF22a02D44A47B88aF4e907F6254CA0933c84",
+      "vaultImplementation": "0x8867cb4adbeB2CE26D27410d9437E2D51FaE94ea",
+      "tokenFactory": "0x957FAd3C7879278B03ae90735b0D8F6300Dd29f7",
+      "deployBlock": 78447180
+    }
   }
 }

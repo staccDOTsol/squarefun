@@ -27,8 +27,16 @@ export interface Launch {
   squarePaid: number;
   /** curve trades seen in the scanned window */
   tradeCount: number;
-  /** 'pools': launched through Uniswap's Liquidity Launcher, straight into a v4 pool, no curve */
-  kind?: 'pad' | 'pools';
+  /**
+   * 'pools': launched through Uniswap's Liquidity Launcher, straight into a v4 pool, no curve.
+   * 'contagian': a Contagian token, in a v4 pool against its memequote; see `contagian` below.
+   */
+  kind?: 'pad' | 'pools' | 'contagian';
+  /**
+   * Contagian tokens are priced in their memequote, not in ETH, and measured against parity (one
+   * of the peg per token). `priceEth` and `marketCapEth` are zero unless the memequote is ETH.
+   */
+  contagian?: {quoteSymbol: string; pegSymbol: string; price: number | null; parityPct: number | null};
   /** Pools launches: the weekly allowance this token's rule gives each wallet (16 in the first version, 6 after) */
   slowFree?: number;
   /** ETH this token's moon jar has forwarded plus what its held fees quote at (moon drops only) */

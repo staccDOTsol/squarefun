@@ -2,11 +2,11 @@ import {upload} from '@vercel/blob/client';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import type {Address} from 'viem';
 import {ActivityBeat, ActivityFeed, LeaderTable, LiveHeading, amt, type LeaderRow} from '../components/Activity';
-import {ContagianTrade} from '../components/ContagianTrade';
+import {ContagianPayoff} from '../components/ContagianPayoff';
 import {Button} from '../components/ui/Button';
 import {Input, Textarea} from '../components/ui/Field';
-import {Badge, Empty, ErrorBox, Skeleton, Tabs, toast} from '../components/ui/Bits';
-import {Flash, Heartbeat, useNow} from '../components/ui/Live';
+import {ErrorBox, Skeleton, Tabs, toast} from '../components/ui/Bits';
+import {Flash} from '../components/ui/Live';
 import {useActivity} from '../lib/activity';
 import {BRAND} from '../lib/brand';
 import {ZERO} from '../lib/chain';
@@ -19,20 +19,19 @@ import {
   contagianDeployed,
   contagianTx,
   defaultPartners,
+  ofParity,
   resolvePair,
   span,
   termsFor,
-  tickPrice,
   toAddress,
-  type ContagianDetail,
   type ContagianLaunch,
-  type ContagianWallet,
   type Pair,
 } from '../lib/contagian';
-import {ago, num, price, short} from '../lib/format';
+import {ago, num, price} from '../lib/format';
 import {useContagianLeaders, type TaxBoard} from '../lib/leaders';
 import {useLive} from '../lib/live';
 import {Link} from '../lib/router';
+import {bp, shown, side, useSlow} from './ContagianToken';
 import {useWallet} from '../lib/wallet';
 
 /**
@@ -89,20 +88,6 @@ const versus = (window: string): Array<[string, string, string]> => [
   ],
   ['The moon', 'Wherever.', 'Its peg. Under it buying is free and selling costs; over it buying costs and selling is free.'],
 ];
-
-/** Where a price stands against parity, and so who pays: the rule in one line. */
-function side(spot: number | null, parity: number | null): {pct: number | null; line: string; tone: string} {
-  if (spot === null || parity === null || !(parity > 0)) return {pct: null, line: '', tone: 'text-ink-500'};
-  const pct = (spot / parity) * 100;
-  if (spot < parity) return {pct, line: 'Under parity: sellers pay, buyers don\u2019t', tone: 'text-down-400'};
-  if (spot > parity) return {pct, line: 'Over parity: buyers pay, sellers don\u2019t', tone: 'text-up-400'};
-  return {pct, line: 'At parity: move it either way and you pay for the move', tone: 'text-brass-300'};
-}
-/** A share of parity: two places under 10%, since a launch opens at a thousandth of a percent of it. */
-const ofParity = (pct: number) => `${pct >= 10 ? pct.toFixed(1) : pct.toLocaleString(undefined, {maximumSignificantDigits: 3})}%`;
-
-const bp = (bps: number | null) => (bps === null ? '—' : `${(bps / 100).toFixed(2)}%`);
-const shown = (v: number | null, f: (n: number) => string) => (v === null ? '—' : f(v));
 
 type QuoteKind = 'usdg' | 'eth' | 'custom';
 type PegKind = 'same' | 'usdg' | 'eth' | 'custom';
@@ -287,7 +272,7 @@ export function Contagian() {
               {list.map(l => (
                 <li key={l.token}>
                   <Link
-                    to={`/contagian/${l.token}`}
+                    to={`/t/${l.token}`}
                     className="flex flex-wrap items-center gap-x-6 gap-y-2 bg-ink-900 px-4 py-3 transition-colors duration-150 hover:bg-ink-850 active:bg-ink-800">
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium text-ink-100">
@@ -361,6 +346,10 @@ export function Contagian() {
       </p>
 
       {contagianDeployed && live}
+
+      <div className="mt-8">
+        <ContagianPayoff window={span(list?.[0]?.drip ?? DEFAULT_DRIP)} wizardsBps={list?.[0]?.wizardsBps} stakersBps={list?.[0]?.stakersBps} />
+      </div>
 
       <section aria-labelledby="vs-h" className="mt-8">
         <h2 id="vs-h" className="text-[13px] font-medium uppercase tracking-wide text-ink-500">
@@ -515,7 +504,7 @@ export function Contagian() {
             <div className="anim-fade rounded-lg border border-up-500/40 bg-ink-900 p-4 text-[13px]">
               <p className="font-medium text-ink-100">Launched</p>
               <p className="num mt-1 break-all text-ink-300">{launched}</p>
-              <Link to={`/contagian/${launched}`} className="mt-2 inline-block text-brass-400 underline-offset-4 hover:underline">
+              <Link to={`/t/${launched}`} className="mt-2 inline-block text-brass-400 underline-offset-4 hover:underline">
                 Open its page
               </Link>
             </div>
@@ -571,13 +560,6 @@ export function Contagian() {
   );
 }
 
-/** Reads again every `ms`, whatever else happens: a counter to hang a slow re-read on. */
-function useSlow(ms: number, enabled: boolean) {
-  const [n, setN] = useState(0);
-  useLive(() => setN(x => x + 1), ms, enabled);
-  return n;
-}
-
 /**
  * The site-wide bad beats: every vault's `Paid` events summed by wallet, one board per
  * memequote (dollars are not added to ETH). Ranked by tax paid in total; the part of it that is
@@ -630,441 +612,5 @@ function TaxBoards({boards, status, error, retry, trigger, rows}: ReturnType<typ
       </div>
       <p className="mt-1.5 text-[12px] leading-5 text-ink-500">Tax paid in total, by wallet. The other half of every payout goes to holders, by balance.</p>
     </section>
-  );
-}
-
-/**
- * A balance that grows between reads. The vault does not publish its release rate, so the rate is
- * the one seen between the last two reads, carried forward for a few seconds at most: the next
- * read corrects it.
- */
-function Streaming({value, perSecond, readAt, unit}: {value: number; perSecond: number; readAt: number; unit: string}) {
-  const running = perSecond > 0;
-  const now = useNow(250, running);
-  const shownNow = value + (running ? Math.min(TICK * 3, Math.max(0, now - readAt)) / 1000 : 0) * perSecond;
-  // enough places that a second's worth shows
-  const digits = running ? Math.min(10, Math.max(2, Math.ceil(-Math.log10(perSecond)) + 1)) : 4;
-  return (
-    <Flash value={value}>
-      {shownNow.toFixed(digits)} {unit}
-    </Flash>
-  );
-}
-
-/** Time left until `at`, counting down each second. */
-function Countdown({at}: {at: number}) {
-  const now = useNow(1000);
-  const s = Math.max(0, Math.ceil((at - now) / 1000));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const two = (n: number) => String(n).padStart(2, '0');
-  return <>{h > 0 ? `${h}:${two(m)}:${two(s % 60)}` : `${m}:${two(s % 60)}`}</>;
-}
-
-const TICK = 2500;
-
-export function ContagianToken({address}: {address: string}) {
-  const wallet = useWallet();
-  const token = toAddress(address);
-  const [l, setL] = useState<ContagianDetail | null | undefined>(undefined);
-  const [mine, setMine] = useState<ContagianWallet | null>(null);
-  /** what each claimable grew by per second between the last two reads */
-  const [rates, setRates] = useState({payer: 0, holder: 0});
-  const last = useRef<ContagianWallet | null>(null);
-  const [standings, setStandings] = useState<Awaited<ReturnType<typeof contagian.standings>>>({});
-  const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  /** goes up on every read that came back: the heartbeat's bar starts again */
-  const [beat, setBeat] = useState(0);
-  const now = useNow(1000, !!mine && mine.waiting > 0);
-
-  // this token's slice of the site's one activity read, and its vault's directory ranked from the same logs
-  const activity = useActivity({token: token ?? undefined, family: 'contagian'});
-  const tax = useContagianLeaders(token ?? '0x');
-  const board = tax.boards[0];
-
-  const read = useCallback(async () => {
-    if (!token) return setL(null);
-    const d = await contagian.one(token);
-    setL(d);
-    const m = d && wallet.address ? await contagian.wallet(d, wallet.address) : null;
-    const before = last.current;
-    last.current = m;
-    const dt = m && before ? (m.readAt - before.readAt) / 1000 : 0;
-    // a balance that fell was claimed or moved: no rate until the next read
-    setRates(m && before && dt > 0 ? {payer: Math.max(0, (m.asPayer - before.asPayer) / dt), holder: Math.max(0, (m.asHolder - before.asHolder) / dt)} : {payer: 0, holder: 0});
-    setMine(m);
-    setBeat(b => b + 1);
-  }, [token, wallet.address]);
-  const load = useCallback(() => {
-    setErr(null);
-    read().catch(e => setErr(e instanceof Error ? e.message : 'Could not read the vault'));
-  }, [read]);
-  useEffect(load, [load]);
-  // Live: the vault's numbers and the wallet's entry, every tick
-  useLive(read, TICK, !!l);
-
-  // what the directory holds for the wallets on the board: read when the board or the feed changes, and every ten seconds
-  const top = (board?.rows ?? []).slice(0, 8).map(r => r.who);
-  const slow = useSlow(10_000, top.length > 0);
-  const vault = l?.vault;
-  const sig = `${vault}:${top.join()}:${activity.events[0]?.id}:${slow}`;
-  useEffect(() => {
-    if (!l || top.length === 0) return;
-    let on = true;
-    contagian
-      .standings(l, top)
-      .then(x => on && setStandings(x))
-      .catch(() => {});
-    return () => {
-      on = false;
-    };
-  }, [sig]);
-
-  const run = async (what: string, fn: () => Promise<unknown>, ok: string) => {
-    if (wallet.status === 'wrong-chain') return wallet.switchChain();
-    if (wallet.status !== 'connected' || !wallet.client || !wallet.address) return wallet.connect();
-    setBusy(what);
-    try {
-      await fn();
-      toast(ok);
-      load();
-    } catch (e) {
-      toast((e instanceof Error ? e.message : 'Transaction failed').split('\n')[0].slice(0, 120), 'err');
-    } finally {
-      setBusy(null);
-    }
-  };
-  const w = wallet.client!;
-  const me = wallet.address!;
-
-  if (err && !l) {
-    return (
-      <main className="mx-auto max-w-3xl px-4 py-16 sm:px-6">
-        <ErrorBox title="Could not read the vault" body={err} retry={load} />
-      </main>
-    );
-  }
-  if (l === null) {
-    return (
-      <main className="mx-auto max-w-3xl px-4 py-16 sm:px-6">
-        <Empty
-          title="Not a Contagian token"
-          body={contagianDeployed ? 'The Contagian launcher did not make this token.' : 'The Contagian launcher is not deployed yet.'}
-          action={
-            <Link to="/contagian" className="text-sm text-brass-400 underline-offset-4 hover:underline">
-              All Contagian tokens
-            </Link>
-          }
-        />
-      </main>
-    );
-  }
-  if (!l) {
-    // the same blocks the page fills, so nothing moves when it does
-    return (
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="mt-2 h-5 w-full max-w-xl" />
-        <div className="mt-8 grid gap-4 lg:grid-cols-[1fr_360px]">
-          <div className="space-y-4">
-            <Skeleton className="h-[148px] w-full" />
-            <Skeleton className="h-[272px] w-full" />
-          </div>
-          <Skeleton className="h-[320px] w-full" />
-        </div>
-      </main>
-    );
-  }
-
-  const q = l.quote.symbol;
-  const window = span(l.drip);
-  const connected = wallet.status === 'connected';
-  const label = wallet.status === 'wrong-chain' ? `Switch to ${BRAND.chainName}` : connected ? null : 'Connect';
-  const matured = !!mine && mine.waiting > 0 && now >= mine.maturesAt;
-  const where = side(l.spot, l.parity);
-  const overParity = l.spot !== null && l.parity !== null && l.spot > l.parity;
-  const gotchya = activity.events.find(e => e.kind === 'gotchya');
-  const rows: LeaderRow[] = (board?.rows ?? []).map(r => {
-    const st = standings[r.who.toLowerCase()];
-    const text = st ? `earning ${amt(st.earning)} · ${(st.shareBps / 100).toFixed(1)}% · claimable ${amt(st.claimable)}` : undefined;
-    return {...r, note: text ? <span title={text}>{text}</span> : undefined};
-  });
-  const cranks: Array<{id: string; name: string; does: string; fn: () => Promise<unknown>; ok: string; blocked?: string}> = [
-    {
-      id: 'offer',
-      name: 'Offer',
-      does: 'Puts a tranche of tolls on sale above the price in the launch pool. Buyers on the way up take it; nothing is pushed down. At most once an hour.',
-      fn: () => contagianTx.offer(w, me, l.vault),
-      ok: 'Offered',
-    },
-    {
-      id: 'settle',
-      name: 'Settle',
-      does: `While the price is over parity: sells tolls into the launch pool, down to parity (or to the price’s average, if that is higher) and no further. What it brings in is split between the bad beats and holders, less a 0.5% tip for whoever calls.`,
-      fn: () => contagianTx.settle(w, me, l.vault),
-      ok: 'Settled',
-      blocked: overParity ? undefined : 'The price is not over parity, so there is nothing to sell: tolls are never sold downward.',
-    },
-    ...(l.partnerCount > 0
-      ? [
-          {
-            id: 'deepen',
-            name: 'Deepen',
-            does: 'Offers a tranche of tolls against the partner asset, over the token’s price in it, in the partner’s pool with the token: the token alone, so none of the partner is at risk. At most once an hour, and the first call only takes a reading.',
-            fn: () => contagianTx.deepen(w, me, l.vault),
-            ok: 'Deepened',
-          },
-        ]
-      : []),
-    {
-      id: 'harvest',
-      name: 'Harvest',
-      does: `Collects from the vault’s ${l.rangeCount} range${l.rangeCount === 1 ? '' : 's'}: what an offer that has sold through sold for (split between the bad beats and holders), and what the others have earned in fees (a quarter to the Stacc Wizards, a quarter to ${BRAND.token} stakers, half to the bad beats). The token side joins the tolls.`,
-      fn: () => contagianTx.harvest(w, me, l.vault),
-      ok: 'Harvested',
-    },
-  ];
-
-  return (
-    <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <Link to="/contagian" className="text-[13px] text-ink-500 hover:text-ink-200">
-          ← Contagian
-        </Link>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink-100">
-          {l.name} <span className="num text-base font-normal text-ink-500">${l.symbol}</span>
-        </h1>
-        <Badge tone="brass">Contagian</Badge>
-        <Heartbeat every={TICK} beat={beat} />
-      </div>
-      <p className="measure mt-1.5 text-sm text-ink-400">
-        Trades against {q} and tends to 1 {l.peg.symbol}. Parity follows what 1 {l.peg.symbol} is worth in {q}. It opened at{' '}
-        {price(tickPrice(l.openTick, l.quote.decimals))} {q}.{' '}
-        <a href={`${BRAND.explorer}/address/${l.token}`} target="_blank" rel="noreferrer" className="text-brass-400 hover:underline">
-          token {short(l.token)}
-        </a>{' '}
-        ·{' '}
-        <a href={`${BRAND.explorer}/address/${l.vault}`} target="_blank" rel="noreferrer" className="text-brass-400 hover:underline">
-          vault {short(l.vault)}
-        </a>{' '}
-        ·{' '}
-        <a href={`https://pools.xyz/t/robinhood/${l.token}`} target="_blank" rel="noreferrer" className="text-brass-400 hover:underline">
-          trade on pools.xyz ↗
-        </a>
-      </p>
-
-      <div className="mt-8 grid gap-4 lg:grid-cols-[1fr_360px]">
-        <div className="min-w-0 space-y-4">
-          <div className="rounded-lg border border-ink-800 bg-ink-900 p-4">
-            <dl className="num grid grid-cols-2 gap-3 text-[13px] sm:grid-cols-5">
-              <div>
-                <dt className="text-ink-500">price</dt>
-                <dd className="text-ink-100">
-                  <Flash value={l.spot}>
-                    {shown(l.spot, price)} {q}
-                  </Flash>
-                </dd>
-              </div>
-              <div>
-                <dt className="text-ink-500">parity</dt>
-                <dd className="text-ink-100">
-                  <Flash value={l.parity} tint={false}>
-                    {shown(l.parity, price)} {q}
-                  </Flash>
-                </dd>
-              </div>
-              <div>
-                <dt className="text-ink-500">of parity</dt>
-                <dd className={where.tone}>
-                  <Flash value={where.pct}>{shown(where.pct, ofParity)}</Flash>
-                </dd>
-              </div>
-              <div>
-                <dt className="text-ink-500">lagging tax, buy / sell</dt>
-                <dd className="text-ink-100">
-                  <Flash value={l.buyBps} tint={false}>
-                    {bp(l.buyBps)}
-                  </Flash>{' '}
-                  /{' '}
-                  <Flash value={l.sellBps} tint={false}>
-                    {bp(l.sellBps)}
-                  </Flash>
-                </dd>
-              </div>
-              <div>
-                <dt className="text-ink-500">tolls held</dt>
-                <dd className="text-ink-100">
-                  <Flash value={l.tolls} tint={false}>
-                    {shown(l.tolls, n => num(n, 2))} {l.symbol}
-                  </Flash>
-                </dd>
-              </div>
-            </dl>
-            {where.line && <p className={`mt-3 text-[13px] font-medium ${where.tone}`}>{where.line}</p>}
-            <p className="measure mt-1.5 text-[12px] leading-5 text-ink-500">
-              Parity is one {l.peg.symbol} per token, in {q}. The tax shown is the lagging rate each side would pay now; a trade also
-              pays for its own push, up to 50%. A buy pays in kind. A sale pays on top: the pool is paid in full and the tax comes out
-              of what the seller has left, so a whole balance cannot be sold while the sell tax is on.
-            </p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <section aria-labelledby="ctg-token-activity-h" className="min-w-0">
-              <LiveHeading id="ctg-token-activity-h" right={<ActivityBeat beat={activity.beat} />}>
-                Activity
-              </LiveHeading>
-              <div className="mt-2">
-                <ActivityFeed {...activity} rows={8} showToken={false} empty="Nothing yet. Every gotchya, payout and claim on this token shows up here as it lands." />
-              </div>
-            </section>
-            <section aria-labelledby="ctg-token-leaders-h" className="min-w-0">
-              <LiveHeading id="ctg-token-leaders-h">Bad beats</LiveHeading>
-              <div className="mt-2">
-                <LeaderTable
-                  rows={rows}
-                  status={tax.status}
-                  error={tax.error}
-                  retry={tax.retry}
-                  unit={q}
-                  show={8}
-                  you={wallet.address}
-                  empty="Nobody has been burned on this token yet. The wallets that pay the tax are listed here, and half of what it sells for goes to them."
-                />
-              </div>
-            </section>
-          </div>
-          <p className="measure text-[12px] leading-5 text-ink-500">
-            Ranked by tax paid in total, earning or still waiting, from the vault's own record of every payment. Beside each wallet:
-            the part that is earning, its share of everything earning, and what it could claim now. The other half of every payout
-            goes to holders, by balance.
-          </p>
-
-          {l.gotchya && (
-            <section aria-labelledby="gotchya-h" className="rounded-lg border border-ink-800 bg-ink-900 p-4">
-              <LiveHeading
-                id="gotchya-h"
-                right={
-                  gotchya ? (
-                    <span className="num text-[12px] text-ink-500">
-                      last sent to {short(gotchya.who, 3)}
-                      {gotchya.ts ? ` · ${ago(gotchya.ts)} ago` : ''} · {amt(gotchya.worth ?? 0)} {q} burned
-                    </span>
-                  ) : undefined
-                }>
-                What the vault just told them
-              </LiveHeading>
-              <p className="measure mt-2 text-[13px] leading-6 text-ink-200">{l.gotchya}</p>
-              <p className="mt-2 text-[12px] leading-5 text-ink-500">The vault's own words, read from the contract. It sends them to a wallet every time that wallet pays the tax.</p>
-            </section>
-          )}
-
-          <details aria-labelledby="cranks-h" className="group">
-            <summary className="cursor-pointer list-none text-[12px] uppercase tracking-[0.08em] text-ink-500 hover:text-ink-300">
-              <span id="cranks-h">The vault&rsquo;s chores</span> <span className="normal-case tracking-normal text-ink-600">· a keeper runs these; anyone may · <span className="group-open:hidden">show</span><span className="hidden group-open:inline">hide</span></span>
-            </summary>
-            <ul className="mt-2 divide-y divide-ink-850 overflow-hidden rounded-lg border border-ink-800">
-              {cranks.map(c => (
-                <li key={c.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 bg-ink-900 px-4 py-3">
-                  <div className="min-w-0 flex-1 basis-64">
-                    <p className="font-medium text-ink-100">{c.name}</p>
-                    <p className="text-[13px] leading-5 text-ink-400">{c.does}</p>
-                    {c.blocked && <p className="mt-1 text-[13px] leading-5 text-warn-500">{c.blocked}</p>}
-                  </div>
-                  <Button size="sm" variant="secondary" loading={busy === c.id} disabled={!!c.blocked} onClick={() => run(c.id, c.fn, c.ok)}>
-                    {label ?? c.name}
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </details>
-        </div>
-
-        <aside className="space-y-4 lg:sticky lg:top-[72px] lg:self-start">
-          {l && <ContagianTrade token={l.token} symbol={l.symbol} quote={l.quote} underParity={l.spot !== null && l.parity !== null && l.spot < l.parity} onDone={load} />}
-          <div className="rounded-lg border border-ink-800 bg-ink-900 p-4">
-            <p className="text-[13px] font-medium text-ink-200">Your place in the directory</p>
-            <dl className="num mt-3 space-y-2 text-[13px]">
-              <div className="flex justify-between gap-3">
-                <dt className="text-ink-500">Earning</dt>
-                <dd className="text-right text-ink-100">
-                  {connected && mine ? (
-                    <Flash value={mine.earning}>
-                      {amt(mine.earning)} {q}
-                    </Flash>
-                  ) : (
-                    '—'
-                  )}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-ink-500">Your share of what is earning</dt>
-                <dd className="text-right text-ink-100">{connected && mine ? <Flash value={mine.shareBps}>{(mine.shareBps / 100).toFixed(2)}%</Flash> : '—'}</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-ink-500">Waiting</dt>
-                <dd className="text-right text-ink-100">
-                  {connected && mine ? (
-                    <>
-                      <Flash value={mine.waiting} tint={false}>
-                        {amt(mine.waiting)} {q}
-                      </Flash>
-                      {mine.waiting > 0 && (
-                        <span className="text-ink-500">
-                          {' · '}
-                          {matured ? (
-                            <span className="text-up-400">ready</span>
-                          ) : (
-                            <>
-                              earns in <Countdown at={mine.maturesAt} />
-                            </>
-                          )}
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    '—'
-                  )}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-ink-500">Claimable as a bad beat</dt>
-                <dd className="text-right text-ink-100">
-                  {connected && mine ? <Streaming value={mine.asPayer} perSecond={rates.payer} readAt={mine.readAt} unit={q} /> : '—'}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-ink-500">Claimable as a holder</dt>
-                <dd className="text-right text-ink-100">
-                  {connected && mine ? <Streaming value={mine.asHolder} perSecond={rates.holder} readAt={mine.readAt} unit={q} /> : '—'}
-                </dd>
-              </div>
-            </dl>
-            {connected && matured && (
-              <Button className="mt-4 w-full" variant="secondary" loading={busy === 'activate'} onClick={() => run('activate', () => contagianTx.activate(w, me, l.vault, me), 'Your entry is earning')}>
-                Activate
-              </Button>
-            )}
-            <Button
-              className={`${connected && matured ? 'mt-2' : 'mt-4'} w-full`}
-              loading={busy === 'claim'}
-              disabled={connected && !(mine && (mine.asPayer + mine.asHolder > 0 || matured))}
-              onClick={() => run('claim', () => contagianTx.claim(w, me, l.vault), `Claimed ${q}`)}>
-              {wallet.status === 'wrong-chain' ? `Switch to ${BRAND.chainName}` : connected ? 'Claim' : 'Connect wallet'}
-            </Button>
-            <p className="mt-3 text-[12px] leading-5 text-ink-500">
-              Claim collects what has been released to your wallet so far, as a bad beat and as a holder, in {q}, and starts a
-              waiting entry earning if its time is up. Activate does only the second.
-            </p>
-          </div>
-          <p className="measure text-[12px] leading-5 text-ink-500">
-            Tax is entered against the wallet that originated the transaction, at its worth in {q} when paid. An entry starts
-            earning {window} after it is paid, and paying again before then starts the wait again, so nobody gets their own tax
-            back: you are paid by whoever is burned after you. Everything the tolls sell for is split half to the bad beats, by
-            how much each paid, and half to holders, by balance, and released over {window}. Holding is free.
-          </p>
-        </aside>
-      </div>
-    </main>
   );
 }

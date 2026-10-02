@@ -16,12 +16,15 @@ export function ContagianTrade({
   symbol,
   quote,
   underParity,
+  tax,
   onDone,
 }: {
   token: Address;
   symbol: string;
   quote: Asset;
   underParity: boolean;
+  /** the vault's lagging rates now, in basis points (`taxBps()`), as the page last read them */
+  tax?: {buyBps: number | null; sellBps: number | null};
   onDone: () => void;
 }) {
   const wallet = useWallet();
@@ -82,14 +85,15 @@ export function ContagianTrade({
   };
 
   const part = (share: number) => have !== undefined && setAmount(String(Math.floor(have * share * 1e6) / 1e6));
-  const rule =
-    side === 'buy'
-      ? underParity
-        ? 'Under parity a buy pays no tax.'
-        : 'Over parity a buy pays for its push, in tokens.'
-      : underParity
-        ? 'Under parity a sale is taxed on top, from what you have left. You cannot sell your whole balance while the tax is on.'
-        : 'Over parity a sale pays no tax.';
+  const rule = underParity ? 'Under parity: buys are free, sells are taxed on top.' : 'Over parity: buys are taxed in tokens, sells are free.';
+  // What this trade pays at the lagging rate. A trade also pays for its own push, and a machine pays more, so this is the least it can be.
+  const bps = (side === 'buy' ? tax?.buyBps : tax?.sellBps) ?? null;
+  const valid = Number.isFinite(n) && n > 0;
+  const cost = bps === null || !valid ? null : side === 'buy' ? (out === null ? null : (out * bps) / 10_000) : (n * bps) / 10_000;
+  const kept = side === 'buy' && out !== null && cost !== null ? out - cost : null;
+  // a sale's tax is taken on top, from what is left: the sale and its tax together cannot be more than the balance
+  const short = side === 'sell' && cost !== null && cost > 0 && have !== undefined && n + cost > have;
+  const most = bps !== null && have !== undefined ? have / (1 + bps / 10_000) : null;
 
   return (
     <div className="rounded-lg border border-brass-700/40 bg-ink-900 p-4">
@@ -126,11 +130,50 @@ export function ContagianTrade({
           </Flash>
         </dd>
       </dl>
-      <Button className="mt-3 w-full" loading={busy} disabled={wallet.status === 'connected' && (!amount || !(n > 0) || tooMuch)} onClick={go}>
+      {tax && (
+        <dl className="num mt-1.5 space-y-1.5 text-[13px]">
+          <div className="flex justify-between gap-3">
+            <dt className="text-ink-500">Tax now, buy / sell</dt>
+            <dd className="text-ink-100">
+              <Flash value={tax.buyBps} tint={false}>
+                {tax.buyBps === null ? '—' : `${(tax.buyBps / 100).toFixed(2)}%`}
+              </Flash>{' '}
+              /{' '}
+              <Flash value={tax.sellBps} tint={false}>
+                {tax.sellBps === null ? '—' : `${(tax.sellBps / 100).toFixed(2)}%`}
+              </Flash>
+            </dd>
+          </div>
+          {cost !== null && (
+            <div className="flex justify-between gap-3">
+              <dt className="text-ink-500">{side === 'buy' ? 'This buy pays at least' : 'This sale pays at least, on top'}</dt>
+              <dd className={cost > 0 ? 'text-brass-300' : 'text-ink-100'}>
+                {cost > 0 ? `${show(cost)} ${symbol}` : 'nothing'}
+              </dd>
+            </div>
+          )}
+          {kept !== null && cost !== null && cost > 0 && (
+            <div className="flex justify-between gap-3">
+              <dt className="text-ink-500">You keep about</dt>
+              <dd className="text-ink-100">
+                {show(kept)} {symbol}
+              </dd>
+            </div>
+          )}
+        </dl>
+      )}
+      {short && most !== null && (
+        <p role="alert" className="mt-2 text-[13px] leading-5 text-down-400">
+          The tax is taken on top, from what you have left: leave room for it. At this rate the most you can sell is about {show(most)} {symbol}.
+        </p>
+      )}
+      <Button className="mt-3 w-full" loading={busy} disabled={wallet.status === 'connected' && (!amount || !(n > 0) || tooMuch || short)} onClick={go}>
         {wallet.status !== 'connected' ? 'Connect to trade' : side === 'buy' ? `Buy ${symbol}` : `Sell ${symbol}`}
       </Button>
       <p className="mt-2.5 text-[12px] leading-snug text-ink-500">
-        {rule} One swap straight through the pool: a wallet&rsquo;s own swap moves the token three times and pays the repetition fee.
+        {rule} The rate shown is the lagging one; a trade also pays for its own push, up to 50%.{' '}
+        {side === 'sell' && 'A sale\u2019s tax comes out of what you have left, so you cannot sell your whole balance while the sell tax is on. '}
+        One swap straight through the pool: a wallet&rsquo;s own swap moves the token three times and pays the repetition fee.
       </p>
     </div>
   );

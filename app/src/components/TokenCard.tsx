@@ -1,5 +1,6 @@
 import type {Launch} from '../lib/types';
-import {ago, eth, pct, short} from '../lib/format';
+import {ofParity} from '../lib/contagian';
+import {ago, eth, pct, price, short} from '../lib/format';
 import {Link} from '../lib/router';
 import {Badge, Progress, Skeleton} from './ui/Bits';
 import {ReferenceMeter} from './ReferenceMeter';
@@ -20,6 +21,9 @@ export function TokenCard({l, index = 0}: {l: Launch; index?: number}) {
   const progress = Math.min(100, l.graduationThreshold ? (l.quoteReserve / l.graduationThreshold) * 100 : 0);
   const graduated = l.phase === 'pool';
   const viaPools = l.kind === 'pools';
+  // a Contagian token is priced in its memequote and measured against parity, not against a curve
+  const ctg = l.contagian;
+  const parityPct = ctg?.parityPct ?? null;
   return (
     <Link
       to={`/t/${l.token}`}
@@ -35,15 +39,24 @@ export function TokenCard({l, index = 0}: {l: Launch; index?: number}) {
               </p>
               <p className="truncate text-[13px] text-ink-400">{l.description}</p>
             </div>
-            {viaPools ? <Badge tone="brass">pools.xyz</Badge> : graduated ? <Badge tone="brass">graduated</Badge> : l.phase === 'swept' ? <Badge>sweeping</Badge> : null}
+            {ctg ? <Badge tone="brass">Contagian</Badge> : viaPools ? <Badge tone="brass">pools.xyz</Badge> : graduated ? <Badge tone="brass">graduated</Badge> : l.phase === 'swept' ? <Badge>sweeping</Badge> : null}
           </div>
           <div className="num mt-2 flex items-center gap-3 text-[12px] text-ink-400">
-            <span>
-              <span className="text-ink-500">mc</span>{' '}
-              <Flash value={l.marketCapEth} className="text-ink-200">
-                {eth(l.marketCapEth)}
-              </Flash>
-            </span>
+            {ctg ? (
+              <span>
+                <span className="text-ink-500">price</span>{' '}
+                <Flash value={ctg.price} className="text-ink-200">
+                  {ctg.price === null ? '—' : price(ctg.price)} {ctg.quoteSymbol}
+                </Flash>
+              </span>
+            ) : (
+              <span>
+                <span className="text-ink-500">mc</span>{' '}
+                <Flash value={l.marketCapEth} className="text-ink-200">
+                  {eth(l.marketCapEth)}
+                </Flash>
+              </span>
+            )}
             <span>
               <span className="text-ink-500">by</span> {short(l.creator, 3)}
             </span>
@@ -53,12 +66,28 @@ export function TokenCard({l, index = 0}: {l: Launch; index?: number}) {
       </div>
       <div className="mt-3 flex items-center gap-3">
         <div className="flex-1">
-          <Progress value={graduated ? 100 : progress} tone={graduated ? 'up' : 'brass'} label="Curve progress" />
+          {ctg ? (
+            <Progress value={Math.min(100, parityPct ?? 0)} tone={(parityPct ?? 0) > 100 ? 'up' : 'brass'} label="Share of parity" />
+          ) : (
+            <Progress value={graduated ? 100 : progress} tone={graduated ? 'up' : 'brass'} label="Curve progress" />
+          )}
         </div>
-        <span className="num w-10 text-right text-[12px] text-ink-400">{graduated ? 'pool' : pct(progress)}</span>
+        {ctg ? (
+          <Flash value={parityPct} className="num shrink-0 text-right text-[12px] text-ink-400">
+            {parityPct === null ? '—' : ofParity(parityPct)} of parity
+          </Flash>
+        ) : (
+          <span className="num w-10 text-right text-[12px] text-ink-400">{graduated ? 'pool' : pct(progress)}</span>
+        )}
       </div>
       <div className="mt-2.5 flex items-center justify-between">
-        <ReferenceMeter refs={l.referencesThisBlock} compact freeRefs={l.twoRatchets ? 2 : 1} />
+        {ctg ? (
+          <span className={`num rounded-full border px-2 py-0.5 text-[11px] ${parityPct !== null && parityPct > 100 ? 'border-up-500/30 text-up-400' : 'border-ink-700 text-ink-400'}`}>
+            {parityPct === null ? `tends to 1 ${ctg.pegSymbol}` : parityPct > 100 ? 'over parity: buyers pay' : parityPct < 100 ? 'under parity: sellers pay' : 'at parity'}
+          </span>
+        ) : (
+          <ReferenceMeter refs={l.referencesThisBlock} compact freeRefs={l.twoRatchets ? 2 : 1} />
+        )}
         <Flash value={l.tradeCount} tint={false} className="num text-[11px] text-ink-500">
           {l.tradeCount} trades
         </Flash>

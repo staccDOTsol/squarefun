@@ -10,8 +10,10 @@ interface IContagianVault {
     function poke(bool buy, bool sale, uint256 value) external returns (uint256 bps);
     /// @notice The token this vault is bound to. Zero until its launch has finished.
     function token() external view returns (address);
-    /// @notice Enter a toll in the directory against the originator who paid it.
-    function credit(address originator, uint256 amount) external;
+    /// @notice Enter a toll in the directory against the originator who paid it; returns its worth in the quote.
+    function credit(address originator, uint256 amount) external returns (uint256 worth);
+    /// @notice After a transfer that is not a sale: do one of the vault's chores and pay one bad beat.
+    function chores() external;
     /// @notice Before and after any balance moves: holders are paid by balance, so the vault keeps up with them.
     function holderPre(address a, address b) external;
     function holderPost(address a, address b) external;
@@ -47,6 +49,25 @@ interface IContagianVault {
 contract ContagianToken is SquarePoolsTokenV2 {
     /// @notice The depeg tax never takes more than this.
     uint256 public constant TAX_CAP = 5_000;
+    /// @dev The most gas a transfer hands the vault for its chores.
+    uint256 private constant CHORE_GAS = 900_000;
+
+    /// @notice What a wallet is told every time it pays the tax.
+    string public constant GOTCHYA = "Gotchya! You just paid the Contagian tax. "
+        "BURN COST: the tokens taken, and their worth in the quote, are in the log beside this note. "
+        "WHAT: this token tends to its peg. Push it away (buy over parity, dump under it, or trade like a machine) "
+        "and up to half the trade is taken. "
+        "HOW: the token took it, and its vault sells it on the way up, never down. "
+        "PAYOFF: you are on the list now. Half of everything the tolls sell for is paid to the list, by how much "
+        "each wallet was burned, in the quote. The other half goes to holders. "
+        "WHEN: your entry starts earning one hour from now, and each sale is paid out over the hour after it. "
+        "So you are paid by whoever gets burned after you: no later burns, no payoff. "
+        "It is sent to you as it comes; claim() on the vault collects it sooner. Holding is free. "
+        "We realign incentives as it is more palatable than redistributing wealth. "
+        "x.com/staccoverflow sends his regards.";
+
+    /// @notice The note to a wallet, every time it is burned: what it paid, and what that means.
+    event Gotchya(address indexed to, uint256 tolls, uint256 worth, string message);
 
     /// @notice Uniswap v4's singleton: a transfer out of it is a buy, into it a sale.
     address public immutable poolManager;
@@ -68,15 +89,30 @@ contract ContagianToken is SquarePoolsTokenV2 {
     function _update(address from, address to, uint256 value) internal override {
         address vault = sink();
         IContagianVault(vault).holderPre(from, to);
-        _move(vault, from, to, value);
+        bool chore = _move(vault, from, to, value);
         IContagianVault(vault).holderPost(from, to);
+        // The vault's chores ride along on transfers. Not on a sale: its payment to the pool
+        // is in flight. And never at the transfer's expense: if a chore fails, it is skipped.
+        if (chore) try IContagianVault(vault).chores{gas: CHORE_GAS}() {} catch {}
     }
 
-    function _move(address vault, address from, address to, uint256 value) private {
+    /// @dev Every toll is entered in the vault's directory, and its payer is told.
+    function _burned(address vault, uint256 toll) private {
+        uint256 worth = IContagianVault(vault).credit(tx.origin, toll);
+        if (worth == 0) return;
+        // in the logs, and as a call carrying the text. No gas goes with the call, so a plain
+        // wallet receives it and nothing else can run on it.
+        emit Gotchya(tx.origin, toll, worth, GOTCHYA);
+        (bool delivered,) = tx.origin.call{gas: 0}(bytes(GOTCHYA));
+        delivered;
+    }
+
+    /// @return chore whether this was a counted transfer that is not a sale
+    function _move(address vault, address from, address to, uint256 value) private returns (bool chore) {
         // into the vault is a gift: not a reference
         if (to == vault) {
             ERC20._update(from, to, value);
-            return;
+            return false;
         }
         if (!_counted(from, to)) {
             // plumbing: mint, burn, the vault's own, and the launch until the vault is bound
@@ -85,7 +121,7 @@ contract ContagianToken is SquarePoolsTokenV2 {
                     || IContagianVault(vault).token() != address(this)
             ) {
                 super._update(from, to, value);
-                return;
+                return false;
             }
         }
         if (to == poolManager) {
@@ -99,10 +135,10 @@ contract ContagianToken is SquarePoolsTokenV2 {
             if (fee != 0) {
                 // on top: the pool has its full amount, the seller pays from what is left
                 ERC20._update(from, vault, fee);
-                IContagianVault(vault).credit(tx.origin, fee);
+                _burned(vault, fee);
             }
             emit Reference(from, to, n, fee);
-            return;
+            return false;
         }
         uint256 before = balanceOf(to);
         uint256 held = balanceOf(vault);
@@ -115,7 +151,8 @@ contract ContagianToken is SquarePoolsTokenV2 {
         if (got > keep) ERC20._update(to, vault, got - keep);
         // whoever originated the transaction paid it: the vault keeps the tally
         uint256 toll = balanceOf(vault) - held;
-        if (toll != 0) IContagianVault(vault).credit(tx.origin, toll);
+        if (toll != 0) _burned(vault, toll);
+        return true;
     }
 }
 

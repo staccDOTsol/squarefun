@@ -155,8 +155,10 @@ const approveRouter = async (...ws) => block(1, await Promise.all(ws.map((w) => 
 async function trade(w, kind, amount, dt = 30, quote = USDG) {
   const [t0, u0, v0] = [await bal(w), await usdgOf(w), await bal(S.vault)]
   const [r] = await block(dt, [kind === 'buy' ? await buy(w, amount, quote) : await sell(w, amount, quote)])
-  const [t1, u1, v1] = [await bal(w), await usdgOf(w), await bal(S.vault)]
-  const tax = v1 - v0
+  const [t1, u1] = [await bal(w), await usdgOf(w)]
+  // what this transaction was entered in the directory for: the vault's own balance also moves when a chore runs
+  const tax = r.status === 'success' ? ev(r, 'Paid').reduce((x, p) => x + p.tolls, 0n) : 0n
+  void v0
   const size = kind === 'buy' ? (t1 - t0) + tax : amount
   return { status: r.status, r, tax, pct: size === 0n ? 0 : Number(tax * 10000n / size) / 100, tokens: kind === 'buy' ? t1 - t0 : t0 - t1, usdg: kind === 'buy' ? u0 - u1 : u1 - u0 }
 }
@@ -255,12 +257,14 @@ await scenario('2. The tolls are sold on the way up, never down; half to the bad
   verdict('offer is price-neutral', o.status === 'success' && off.tolls > 0n && after.spot === before.spot && (await state()).tolls === after.tolls && again.every((r) => r.status === 'success'),
     'a tranche of tolls goes on sale above the price without moving it, once a period')
   // buyers take the price up through the offer
-  await trade(carol, 'buy', 40_000n * USD, 60)
+  const up = await trade(carol, 'buy', 40_000n * USD, 60)
   show(await state(), 'bought up through it')
   const [aBal, bBal, cBal] = [await bal(alice), await bal(bob), await bal(carol)]
-  const [h] = await block(5, [await send(mallory, S.vault, A.vault.abi, 'harvest', [0n, 10n])])
-  const hv = ev(h, 'Harvested')[0], rf = ev(h, 'Reflected')[0]
-  say(`  harvest ${h.status}: the offer sold for $${usd(hv.otherAmount)} (sold ${hv.sold}); reflected $${usd(rf.toPayers)} to the bad beats, $${usd(rf.toHolders)} to the holders`)
+  // the buy that crossed the offer may have collected it itself; if not, anyone can
+  let h = up.r
+  if (!ev(h, 'Harvested').some((x) => x.sold)) [h] = await block(5, [await send(mallory, S.vault, A.vault.abi, 'harvest', [0n, 10n])])
+  const hv = ev(h, 'Harvested').find((x) => x.sold), rf = ev(h, 'Reflected')[0]
+  say(`  ${h === up.r ? 'collected inside the buy itself' : 'harvest ' + h.status}: the offer sold for $${usd(hv.otherAmount)}; reflected $${usd(rf.toPayers)} to the bad beats, $${usd(rf.toHolders)} to the holders`)
   await block(3_700, [await send(DEPLOYER, S.vault, A.vault.abi, 'poke', [])])
   const cl = {}
   for (const [n, w] of [['alice', alice], ['bob', bob], ['carol', carol]]) cl[n] = await V('claimable', [w])
@@ -293,15 +297,18 @@ await scenario('3. Over the peg: buyers pay, sellers do not, and the tolls are s
   say(`  bob sells half back while it is over parity: ${out.status}, ${tok(out.tax)} tax`)
   const before = await state()
   const [r] = await block(30, [await send(carol, S.vault, A.vault.abi, 'settle', [])])
-  const sv = ev(r, 'Settled')[0], rf = ev(r, 'Reflected')[0]
+  // a buy over parity may already have settled the tolls itself
+  const all = [over.r, chaser.r, out.r, r].flatMap((x) => ev(x, 'Settled'))
+  const sv = all[0]
+  const sold = all.reduce((a, x) => a + x.tolls, 0n), took = all.reduce((a, x) => a + x.quoteIn, 0n)
   const after = await state()
-  show(before, 'before settle'); show(after, 'after settle')
-  say(`  settle ${r.status}: sold ${sv ? tok(sv.tolls) : 0} tolls for $${sv ? usd(sv.quoteIn) : 0}; reflected $${rf ? usd(rf.toPayers) : 0} / $${rf ? usd(rf.toHolders) : 0}; tip $${sv ? usd(sv.tip) : 0}`)
+  show(before, 'before the last settle'); show(after, 'after it')
+  say(`  ${all.length} settlement(s), ${ev(r, 'Settled').length ? 'the last by hand' : 'all inside buys'}: sold ${tok(sold)} tolls for $${usd(took)}`)
   const [r2] = await block(30, [await send(carol, S.vault, A.vault.abi, 'settle', [])])
   verdict('below: buyers free (large)', up.every((x) => x.tax === 0n), 'under parity even a seven-figure buy pays nothing')
   verdict('above: buyers pay', over.tax > 0n && chaser.pct > 5, `over parity a buy pays for the push: ${over.pct}% on the one that crossed it, ${chaser.pct}% on the one that chased it`)
   verdict('above: sellers free', out.status === 'success' && out.tax === 0n, 'over parity a sale pays nothing')
-  verdict('settle stops at parity', !!sv && after.spot >= after.parity && after.spot < before.spot && ev(r2, 'Settled').length === 0,
+  verdict('settle stops at parity', !!sv && after.spot >= after.parity && ev(r2, 'Settled').length === 0,
     'over parity the vault sells tolls down toward the peg and no further; calling again sells nothing')
 })
 
@@ -361,6 +368,37 @@ await scenario('7. A gift to the vault, and holders who come and go', async () =
   const [c1] = await block(1, [await send(mallory, S.vault, A.vault.abi, 'claim', [])])
   say(`  gift ${g.status} (${tok(gift)} tokens join the tolls), transfers ${t.status}/${t2.status}, a sale ${s1.status}, a claim with nothing owed ${c1.status}`)
   verdict('holder bookkeeping', [g, t, t2, c1].every((r) => r.status === 'success') && s1.status === 'success', 'gifts to the vault, wallet-to-wallet moves and empty claims leave the holder accounts consistent')
+})
+
+await scenario('8. Nobody presses anything: the chores and the payouts ride on other people\'s transfers', async () => {
+  await withTolls()
+  const crowd = []
+  for (let i = 0; i < 16; i++) crowd.push(await actor(30 + i, 100_000n * USD))
+  const [bob0, alice0] = [await usdgOf(bob), await usdgOf(alice)]
+  const seenEv = { Offered: 0, Harvested: 0, Reflected: 0, Settled: 0, Claimed: 0 }
+  const toBob = []
+  const note = (r) => {
+    for (const k of Object.keys(seenEv)) seenEv[k] += ev(r, k).length
+    for (const c of ev(r, 'Claimed')) if (c.who.toLowerCase() === bob.toLowerCase()) toBob.push(c.amount)
+  }
+  let gasPlain = 0n, gasMax = 0n
+  // an ordinary afternoon: small buys twenty minutes apart, one big one in the middle
+  for (let i = 0; i < 16; i++) {
+    const t = await trade(crowd[i], 'buy', (i === 6 ? 30_000n : 200n) * USD, 1200)
+    if (t.status !== 'success') throw new Error(`buy ${i} ${t.status}: ${await why(t.r)}`)
+    note(t.r)
+    if (i === 0) gasPlain = t.r.gasUsed
+    if (t.r.gasUsed > gasMax) gasMax = t.r.gasUsed
+  }
+  // alice moves a token to herself: a holder is paid when they next touch it
+  const [a] = await block(60, [await send(alice, S.token, erc20, 'transfer', [alice, TOK])])
+  note(a)
+  const [bobGot, aliceGot] = [(await usdgOf(bob)) - bob0, (await usdgOf(alice)) - alice0]
+  say(`  16 buys and one transfer by other people, nobody calling the vault: ${Object.entries(seenEv).map(([k, v]) => `${v} ${k}`).join(', ')}`)
+  say(`  bob (a bad beat, sent no transaction) received $${usd(bobGot)} in ${toBob.length} payment(s); alice (a holder) received $${usd(aliceGot)} when she moved a token`)
+  say(`  gas for a buy: ${gasPlain} with a chore that had nothing to do, ${gasMax} at most`)
+  verdict('chores run themselves', seenEv.Offered > 0 && seenEv.Harvested > 0 && seenEv.Reflected > 0, 'tolls were put on sale, collected and split inside other people\'s transfers, with nobody calling the vault')
+  verdict('payouts arrive', bobGot > 0n && aliceGot > 0n, 'a bad beat was paid without sending a transaction, and a holder was paid on their next transfer')
 })
 
 await scenario('13. A partner dollar: a griefed pool, asks at the launch price, and a partner that dies', async () => {
