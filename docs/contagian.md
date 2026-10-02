@@ -96,6 +96,12 @@ Open:
 - Under parity a buy is free, including for a sniper in the launch block.
 - A sale needs spare balance for its tax, and a router that holds the tokens first has none: a
   taxed sale through one reverts.
+- **The deployed second version undertaxes sales.** A sale pays only for pushing the price under
+  its ten-minute average, so a sale into a pump pays nothing, and the speed is measured as a
+  share of parity, so far under parity it is nil. On the live token 43 sales paid nothing. The
+  source here is fixed and not deployed: a sale pays for its own move (from the price it found or
+  the average, whichever is further), and the speed is the price's own. Fork run: a big sale
+  into a pump 21%, a small one 0.12%, a small sale into a slide 24.5%, buys free throughout.
 - A partner's price is two spot readings an hour apart.
 - An offer of dust still uses up the hour: the first toll on the live token was a few hundred
   wei, so its first real offer came an hour late.

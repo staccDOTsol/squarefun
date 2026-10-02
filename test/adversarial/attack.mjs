@@ -233,6 +233,33 @@ await scenario('1. Below the peg: buying is free, dumping pays', async () => {
   verdict('sell-all under tax', m.status === 'reverted' && part.status === 'success', 'while the sell tax is on, a whole balance cannot be sold: the tax has to be left behind. A partial sale goes through')
 })
 
+await scenario('9. A sale into a pump, and a sale into a slide', async () => {
+  // what the live token saw: buys seconds apart, the price well over its ten-minute average, and profit taken into it
+  const buys = []
+  for (const w of [alice, bob, mallory, carol, alice, bob]) buys.push(await trade(w, 'buy', 3_000n * USD, 20))
+  const st = await state()
+  show(st, 'mid-pump')
+  await approveRouter(alice, bob, mallory, carol)
+  const big = await trade(alice, 'sell', (await bal(alice)) / 2n, 20)
+  const small = await trade(carol, 'sell', (await bal(carol)) / 100n, 20)
+  say(`  price ${(Number(st.spot) / Number(st.e.price) * 100 - 100).toFixed(1)}% over its average. alice sells half her bag into it: ${big.status}, ${big.pct}% tax; carol sells a hundredth: ${small.status}, ${small.pct}% tax`)
+  verdict('below: a sale into a pump pays', buys.every((x) => x.tax === 0n) && big.status === 'success' && big.pct > 0.5 && small.status === 'success' && small.pct < big.pct,
+    `with the price over its average a sale still pays for its own push: ${big.pct}% on a big one, ${small.pct}% on a small one; the buys paid nothing`)
+  // the slide: let the average catch up, then dumps five minutes apart, then a small sale that barely moves anything
+  await rest()
+  show(await state(), 'at rest')
+  const calm = await trade(carol, 'sell', (await bal(carol)) / 100n, 60)
+  for (const w of [bob, mallory, alice, bob, mallory]) { const d = await trade(w, 'sell', (await bal(w)) / 4n, 300); say(`    dump: ${d.status}, ${d.pct}% tax`) }
+  const after = await state()
+  show(after, 'after five dumps')
+  const late = await trade(carol, 'sell', (await bal(carol)) / 100n, 60)
+  say(`  carol sells a hundredth at rest: ${calm.pct}% tax; the same into the slide: ${late.status}, ${late.pct}% tax (lagging sell tax ${after.sellBps} bp)`)
+  verdict('faster = more, far under parity', after.sellBps > 100n && late.pct > calm.pct + 1,
+    `far under parity the speed still counts: the lagging sell tax is ${Number(after.sellBps) / 100}%, and a small sale that paid ${calm.pct}% at rest pays ${late.pct}% in the slide`)
+  const dip = await trade(carol, 'buy', 1_000n * USD, 30)
+  verdict('below: a buy into the slide is free', dip.tax === 0n, 'buying the slide pays nothing')
+})
+
 /** Holders, a dump that leaves tolls in the vault, and an hour for the dumper's entry to count. */
 async function withTolls() {
   await trade(alice, 'buy', 2_000n * USD, 600)

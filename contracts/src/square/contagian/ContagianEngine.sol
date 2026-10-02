@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 /// @title ContagianEngine: how fast a token is leaving its NAV, and what that costs.
 /// @notice The tax a Contagian token charges is a funding rate. It prices speed, not position: a
 ///         token sitting 5% over its NAV and not moving charges nothing, a token moving away
-///         from its NAV at 5% an hour charges 5%, and whoever is on the side doing the pushing
+///         from its NAV at 5% of its own price an hour charges 5%, and whoever is on the side doing the pushing
 ///         pays it. Buyers pay while a premium is growing, sellers pay while a discount is
 ///         growing, and a trade that moves the price back toward NAV never pays.
 ///
@@ -21,7 +21,7 @@ library ContagianEngine {
     uint256 internal constant HL_PRICE = 600;
     /// @dev Half-life of the velocity average: how long a burst of depeg keeps being charged.
     uint256 internal constant HL_VEL = 1800;
-    /// @dev The tax is the deviation the token would gain over this many seconds at its current speed.
+    /// @dev The tax is the share of its price the token would move over this many seconds at its current speed.
     uint256 internal constant HORIZON = 3600;
     uint256 private constant LN2 = 693147180559945309;
 
@@ -29,8 +29,8 @@ library ContagianEngine {
         uint256 price; // average spot, in the market's price scale
         uint256 nav; // average expected NAV, same scale
         int256 dev; // price / nav - 1 at the last sample, WAD
-        int256 vel; // average of d(dev)/dt, WAD per second
-        uint256 absVel; // average of |d(dev)/dt|: whether the average is still moving at all
+        int256 vel; // average rate of change of price / nav, as a share of itself, WAD per second
+        uint256 absVel; // average of its size: whether the average is still moving at all
         uint64 t; // last sample
     }
 
@@ -65,10 +65,14 @@ library ContagianEngine {
         uint256 dt = nowTs - s.t;
         if (dt == 0) return s;
         uint256 w = decay(dt, HL_PRICE);
-        s.price = (s.price * w + spot * (WAD - w)) / WAD;
-        s.nav = (s.nav * w + nav * (WAD - w)) / WAD;
-        int256 dev = deviation(s.price, s.nav);
-        int256 inst = (dev - s.dev) / int256(dt);
+        uint256 price = (s.price * w + spot * (WAD - w)) / WAD;
+        uint256 navNow = (s.nav * w + nav * (WAD - w)) / WAD;
+        // the speed is the price's own, against its NAV: a token at a thousandth of its NAV that
+        // halves has moved 50%, not a twentieth of a percent
+        int256 inst = s.price == 0 ? int256(0) : (int256((((price * s.nav) / navNow) * WAD) / s.price) - int256(WAD)) / int256(dt);
+        s.price = price;
+        s.nav = navNow;
+        int256 dev = deviation(price, navNow);
         w = decay(dt, HL_VEL);
         s.vel = (s.vel * int256(w) + inst * int256(WAD - w)) / int256(WAD);
         s.absVel = (s.absVel * w + (inst < 0 ? uint256(-inst) : uint256(inst)) * (WAD - w)) / WAD;

@@ -439,15 +439,20 @@ contract ContagianVault is IUnlockCallback {
         else if (sale) sqrtPre = _moved(sqrtNow, value - (value * LP_FEE) / 1e6, false);
         (ContagianEngine.State memory s, uint256 spotNow) = _sample(sqrtNow, sqrtPre);
         (uint256 buyBps, uint256 sellBps) = ContagianEngine.rates(s);
-        // s.nav is parity, averaged. A buy only pays over it, a sale only under it.
+        // s.nav is parity, averaged. A buy only pays over it, a sale only under it. Each pays for
+        // the move it made, measured from the price it found or the average, whichever is
+        // further: a sale into a pump pays for its own push, a sale into a slide for the slide.
+        uint256 base = _spot(sqrtPre);
         if (buy) {
             if (spotNow <= s.nav) return 0;
-            uint256 base = s.price > s.nav ? s.price : s.nav;
+            if (s.price < base) base = s.price;
+            if (base < s.nav) base = s.nav;
             if (spotNow > base) bps = Math.mulDiv(spotNow - base, IMPACT_BPS, base);
             if (buyBps > bps) bps = buyBps;
         } else if (sale) {
             if (spotNow >= s.nav) return 0;
-            uint256 base = s.price < s.nav ? s.price : s.nav;
+            if (s.price > base) base = s.price;
+            if (base > s.nav) base = s.nav;
             if (spotNow < base) bps = Math.mulDiv(base - spotNow, IMPACT_BPS, base);
             if (sellBps > bps) bps = sellBps;
         } else {
@@ -546,7 +551,8 @@ contract ContagianVault is IUnlockCallback {
         uint160 sqrtNow = _sqrtPrice();
         (ContagianEngine.State memory s, uint256 spotNow) = _sample(sqrtNow, sqrtNow);
         uint256 amount = (tolls() * TRANCHE_BPS) / 10_000;
-        if (amount == 0) return 0;
+        // less than a whole token is dust: it would place nothing and still use up the period
+        if (amount < 1e18) return 0;
         // never under the price, nor under its average
         uint256 price = spotNow > s.price ? spotNow : s.price;
         seen[quote] = Seen(price, uint64(block.timestamp));
