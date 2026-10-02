@@ -187,4 +187,47 @@ export const contagianTrade = {
     if (receipt.status !== 'success') throw new Error('The sale reverted');
     return hash;
   },
+
+  /**
+   * Sell as much as the wallet can. With no sell tax that is the whole balance; with one it is
+   * the largest sale whose tax the rest of the balance still covers, found by trying sizes
+   * against the chain. Returns what was sold, in whole tokens.
+   */
+  async sellMost(w: WalletClient, account: Address, token: Address, quote: Asset, slippageBps = 300) {
+    const held = await balanceOf(token, account);
+    if (held === 0n) throw new Error('Nothing to sell');
+    await allow(w, account, token, held);
+    const hops = route(token, quote, 'sell', quote);
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+    const passes = async (amountIn: bigint) => {
+      const c = call(hops, amountIn, 0n);
+      try {
+        await publicClient.simulateContract({account, address: UNIVERSAL_ROUTER, abi: routerAbi, functionName: 'execute', args: [c.commands, c.inputs, deadline]});
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    let amountIn = held;
+    if (!(await passes(held))) {
+      let lo = 0n;
+      let hi = held;
+      for (let i = 0; i < 12; i++) {
+        const mid = (lo + hi) / 2n;
+        if (await passes(mid)) lo = mid;
+        else hi = mid;
+      }
+      // a little under the most that passes: the price can move before this lands
+      amountIn = (lo * 995n) / 1000n;
+      if (amountIn === 0n) throw new Error('No sale goes through right now. Try a smaller amount in a minute.');
+    }
+    const minOut = ((await quoteOut(hops, amountIn, account)) * BigInt(10_000 - slippageBps)) / 10_000n;
+    const c = call(hops, amountIn, minOut);
+    const args = [c.commands, c.inputs, deadline] as const;
+    await publicClient.simulateContract({account, address: UNIVERSAL_ROUTER, abi: routerAbi, functionName: 'execute', args});
+    const hash = await w.writeContract({chain: robinhood, account, address: UNIVERSAL_ROUTER, abi: routerAbi, functionName: 'execute', args});
+    const receipt = await publicClient.waitForTransactionReceipt({hash});
+    if (receipt.status !== 'success') throw new Error('The sale reverted');
+    return Number(formatUnits(amountIn, 18));
+  },
 };

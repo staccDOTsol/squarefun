@@ -84,6 +84,22 @@ export function ContagianTrade({
     }
   };
 
+  const sellMost = async () => {
+    if (wallet.status !== 'connected' || !wallet.client || !me) return wallet.connect();
+    setBusy(true);
+    try {
+      const sold = await contagianTrade.sellMost(wallet.client, me, token, quote);
+      toast(`Sold ${show(sold)} ${symbol}`);
+      setAmount('');
+      await readBalances();
+      onDone();
+    } catch (e) {
+      toast((e instanceof Error ? e.message : 'Transaction failed').split('\n')[0].slice(0, 160), 'err');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const part = (share: number) => have !== undefined && setAmount(String(Math.floor(have * share * 1e6) / 1e6));
   const rule = underParity ? 'Under parity: buys are free, sells are taxed on top.' : 'Over parity: buys are taxed in tokens, sells are free.';
   // What this trade pays at the lagging rate. A trade also pays for its own push, and a machine pays more, so this is the least it can be.
@@ -170,9 +186,14 @@ export function ContagianTrade({
       <Button className="mt-3 w-full" loading={busy} disabled={wallet.status === 'connected' && (!amount || !(n > 0) || tooMuch || short)} onClick={go}>
         {wallet.status !== 'connected' ? 'Connect to trade' : side === 'buy' ? `Buy ${symbol}` : `Sell ${symbol}`}
       </Button>
+      {side === 'sell' && wallet.status === 'connected' && have !== undefined && have > 0 && (
+        <Button variant="secondary" className="mt-2 w-full" loading={busy} onClick={sellMost}>
+          Sell the most I can
+        </Button>
+      )}
       <p className="mt-2.5 text-[12px] leading-snug text-ink-500">
         {rule} The rate shown is the lagging one; a trade also pays for its own push, up to 50%.{' '}
-        {side === 'sell' && 'A sale\u2019s tax comes out of what you have left, so you cannot sell your whole balance while the sell tax is on. '}
+        {side === 'sell' && 'A sale\u2019s tax comes out of what you have left, so you cannot sell your whole balance while the sell tax is on: \u201cSell the most I can\u201d finds the largest sale that goes through. A wallet\u2019s own swap or an aggregator holds the tokens first and has nothing left to pay with, so it reverts. '}
         One swap straight through the pool: a wallet&rsquo;s own swap moves the token three times and pays the repetition fee.
       </p>
     </div>
