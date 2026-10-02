@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <rect width="1024" height="1024" fill="#0c0b09"/>
+  <!-- the coin -->
+  <circle cx="512" cy="512" r="430" fill="#14120e" stroke="#eba531" stroke-width="34"/>
+  <circle cx="512" cy="512" r="372" fill="none" stroke="#eba531" stroke-opacity="0.22" stroke-width="6" stroke-dasharray="4 22" stroke-linecap="round"/>
+  <!-- parity: the equals sign, and the token held between its bars -->
+  <rect x="282" y="404" width="460" height="56" rx="28" fill="#eba531"/>
+  <rect x="282" y="564" width="460" height="56" rx="28" fill="#eba531"/>
+  <circle cx="512" cy="512" r="40" fill="#f3efe7"/>
+  <!-- pushed back from above -->
+  <path d="M432 250 L512 326 L592 250" fill="none" stroke="#e5534b" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- and from below -->
+  <path d="M432 774 L512 698 L592 774" fill="none" stroke="#3fc370" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

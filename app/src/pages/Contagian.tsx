@@ -1,3 +1,4 @@
+import {upload} from '@vercel/blob/client';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import type {Address} from 'viem';
 import {ActivityBeat, ActivityFeed, LeaderTable, LiveHeading, amt, type LeaderRow} from '../components/Activity';
@@ -119,6 +120,35 @@ const empty = {
 export function Contagian() {
   const wallet = useWallet();
   const [f, setF] = useState(empty);
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // the same upload the launch page uses: checked here, hosted on Vercel Blob, the URL goes on-chain
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    setUploadErr(null);
+    if (!file.type.startsWith('image/')) return setUploadErr('Pick an image');
+    if (file.size > 4 * 1024 * 1024) return setUploadErr('At most 4 MB');
+    const dims = await new Promise<{w: number; h: number}>(resolve => {
+      const img = new Image();
+      img.onload = () => resolve({w: img.naturalWidth, h: img.naturalHeight});
+      img.onerror = () => resolve({w: 0, h: 0});
+      img.src = URL.createObjectURL(file);
+    });
+    if (dims.w && dims.w < 256) return setUploadErr('At least 256 px wide');
+    setUploading(true);
+    try {
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace('jpeg', 'jpg');
+      const slug = (f.symbol || f.name || 'token').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'token';
+      const blob = await upload(`launch/${slug}.${ext}`, file, {access: 'public', handleUploadUrl: '/api/upload', contentType: file.type});
+      setF(s => ({...s, image: blob.url}));
+    } catch (e) {
+      setUploadErr(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
   const [pair, setPair] = useState<Pair | null>(null);
@@ -382,7 +412,30 @@ export function Contagian() {
               <Input label="Ticker" value={f.symbol} onChange={set('symbol')} onBlur={blur('symbol')} error={touched.symbol ? errors.symbol : undefined} placeholder="TICKER" mono maxLength={16} />
             </div>
             <Textarea label="Description" value={f.description} onChange={set('description')} onBlur={blur('description')} error={touched.description ? errors.description : undefined} placeholder="What is this, in one breath." maxLength={2048} hint={`${2048 - f.description.length} left`} />
-            <Input label="Image URL (optional)" value={f.image} onChange={set('image')} onBlur={blur('image')} error={touched.image ? errors.image : undefined} placeholder="https://… (IPFS works)" maxLength={512} hint="Stored on-chain as written." />
+            <div>
+              <span className="mb-1.5 block text-[13px] font-medium text-ink-300">Image</span>
+              <div className="flex flex-wrap items-center gap-3">
+                <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" className="sr-only" onChange={e => pick(e.target.files?.[0])} />
+                {f.image && <img src={f.image} alt="" className="size-10 rounded-lg border border-ink-800 object-cover" onError={e => ((e.target as HTMLImageElement).style.display = 'none')} />}
+                <Button type="button" variant="secondary" loading={uploading} onClick={() => fileRef.current?.click()}>
+                  {f.image ? 'Replace image' : 'Upload image'}
+                </Button>
+                {f.image && (
+                  <a href={f.image} target="_blank" rel="noreferrer" className="num max-w-[60%] truncate text-[12px] text-brass-400 hover:underline">
+                    {f.image.replace(/^https?:\/\//, '')}
+                  </a>
+                )}
+              </div>
+              <span className={`mt-1.5 block text-[13px] ${uploadErr ? 'text-down-400' : 'text-ink-500'}`}>
+                {uploadErr ?? 'Square, at least 256 px, up to 4 MB. Hosted on Vercel Blob; the URL is stored on-chain.'}
+              </span>
+              <details className="mt-2">
+                <summary className="cursor-pointer text-[12px] text-ink-500 hover:text-ink-300">or paste a URL</summary>
+                <div className="mt-2">
+                  <Input value={f.image} onChange={set('image')} onBlur={blur('image')} error={touched.image ? errors.image : undefined} placeholder="https://… (IPFS works)" maxLength={512} aria-label="Image URL" />
+                </div>
+              </details>
+            </div>
           </fieldset>
 
           <fieldset className="space-y-4">
