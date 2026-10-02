@@ -168,7 +168,7 @@ export function Square() {
               </dl>
               <div className="mt-4 flex gap-1 text-[13px]">
                 {(['stake', 'unstake'] as const).map(m => (
-                  <button key={m} onClick={() => setMode(m)} aria-pressed={mode === m} className={`rounded px-2 py-1 ${mode === m ? 'bg-ink-700 text-ink-100' : 'text-ink-400 hover:text-ink-200'}`}>
+                  <button key={m} onClick={() => setMode(m)} aria-pressed={mode === m} className={`rounded px-2 py-1 active:translate-y-px ${mode === m ? 'bg-ink-700 text-ink-100' : 'text-ink-400 hover:text-ink-200'}`}>
                     {m}
                   </button>
                 ))}
@@ -195,7 +195,7 @@ export function Square() {
                       const base = mode === 'stake' ? s.yourWallet : s.yourStake;
                       setAmt(base > 0 ? String(Number((base * p).toFixed(6))) : '');
                     }}
-                    className="num rounded border border-brass-700/40 px-2 py-1 text-[12px] text-brass-300 transition-colors hover:border-brass-500 hover:text-brass-200 disabled:opacity-40 focus-visible:outline-brass-400">
+                    className="num rounded border border-brass-700/40 px-2 py-1 text-[12px] text-brass-300 transition-colors hover:border-brass-500 hover:text-brass-200 active:translate-y-px active:bg-brass-900 disabled:opacity-40 disabled:active:translate-y-0 focus-visible:outline-brass-400">
                     {p === 1 ? 'max' : `${p * 100}%`}
                   </button>
                 ))}

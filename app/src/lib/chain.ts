@@ -9,7 +9,8 @@ export const robinhood = defineChain({
   blockExplorers: {default: {name: 'Robinhood Explorer', url: 'https://robinhoodchain.blockscout.com'}},
 });
 
-export const publicClient = createPublicClient({chain: robinhood, transport: http(undefined, {batch: true})});
+/** Reads made in the same tick travel as one JSON-RPC batch; a whole history scan is one round trip. */
+export const publicClient = createPublicClient({chain: robinhood, transport: http(undefined, {batch: {batchSize: 250}})});
 
 export const ADDR = deployment as {
   chainId: number;
@@ -38,6 +39,8 @@ export const ADDR = deployment as {
   weth?: Address;
   /** Launches through Uniswap's Liquidity Launcher (pools.xyz) with the Square token factory */
   pools?: {launcher: Address; instantStrategy: Address; tokenFactory: Address; settler: Address; venue: Address; deployBlock: number; tokens?: Address[]; tokenFactoryV2?: Address; deployBlockV2?: number; moonFactory?: Address};
+  /** ContagianLauncher: one transaction launches a token whose moon is parity. Absent until deployed. */
+  contagian?: {launcher: Address; deployBlock?: number};
   /** MigrateFactory: the pooper scooper. Zero until deployed. */
   migrateFactory?: Address;
   /** ScoopBatch: a whole wallet in one transaction */
@@ -136,30 +139,134 @@ export const erc20Abi = parseAbi([
   'function decimals() view returns (uint8)',
 ]);
 
-/** Robinhood's public RPC caps eth_getLogs at roughly 50k blocks per call. */
-export const LOG_CHUNK = 45_000n;
+/**
+ * Robinhood's RPCs refuse eth_getLogs over more than 100k blocks, and dRPC also caps a call at
+ * 200k "addresses x blocks": a filter on 20 contracts may span 10k blocks, not 100k.
+ */
+export const LOG_CHUNK = 90_000n;
+const LOG_BUDGET = 190_000n;
 
+/**
+ * Logs over any range, in chunks the RPC accepts; `addresses` is how many contracts the filter
+ * names. The chunks go out together and the batching transport folds them into one HTTP request;
+ * reading them one after another cost a round trip each.
+ */
 export async function getLogsChunked<T>(
   fetchRange: (from: bigint, to: bigint) => Promise<T[]>,
   from: bigint,
   to: bigint,
+  addresses = 1,
 ): Promise<T[]> {
-  const out: T[] = [];
-  for (let a = from; a <= to; a += LOG_CHUNK + 1n) {
-    const b = a + LOG_CHUNK > to ? to : a + LOG_CHUNK;
-    out.push(...(await fetchRange(a, b)));
-  }
-  return out;
+  const fit = LOG_BUDGET / BigInt(Math.max(1, addresses));
+  const step = (fit < LOG_CHUNK ? fit : LOG_CHUNK) - 1n;
+  const ranges: Array<[bigint, bigint]> = [];
+  for (let a = from; a <= to; a += step + 1n) ranges.push([a, a + step > to ? to : a + step]);
+  return (await Promise.all(ranges.map(([a, b]) => fetchRange(a, b)))).flat();
 }
 
-const tsCache = new Map<bigint, number>();
-export async function blockTimestamp(n: bigint): Promise<number> {
-  const hit = tsCache.get(n);
-  if (hit) return hit;
-  const b = await publicClient.getBlock({blockNumber: n});
-  const ts = Number(b.timestamp) * 1000;
-  tsCache.set(n, ts);
-  return ts;
+/** Blocks behind the head a scan does not yet keep: a load-balanced RPC node can trail the head by a few. */
+const SETTLE = 40n;
+const STORE = `sq:${deployment.chainId}:1:`;
+
+const encode = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === 'bigint' ? {$n: x.toString()} : x));
+const decode = (s: string) => JSON.parse(s, (_, x) => (x && typeof x === 'object' && typeof x.$n === 'string' ? BigInt(x.$n) : x));
+/** Browser storage can be missing, full or blocked (private windows, in-app browsers); the site works without it. */
+function stored<V>(key: string): V | undefined {
+  try {
+    const raw = localStorage.getItem(STORE + key);
+    return raw ? (decode(raw) as V) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+function store(key: string, value: unknown) {
+  try {
+    localStorage.setItem(STORE + key, encode(value));
+  } catch {
+    /* nothing kept: the next visit reads the chain again */
+  }
+}
+
+type Cursor<S> = {to: bigint; acc: S};
+const cursors = new Map<string, Cursor<unknown>>();
+const queues = new Map<string, Promise<unknown>>();
+
+/**
+ * A running fold over logs from `from` to `to`, remembered under `key`. History is read once per
+ * browser; every later call reads only the blocks since. The last SETTLE blocks are returned but
+ * read again next time. `fold` must not mutate `acc`, and what it returns must survive JSON
+ * (bigints are handled). `keep: false` remembers for this page view only.
+ */
+export function scan<T extends {blockNumber: bigint}, S>(o: {
+  key: string;
+  read: (from: bigint, to: bigint) => Promise<T[]>;
+  from: bigint;
+  to: bigint;
+  init: S;
+  fold: (acc: S, logs: T[]) => S;
+  /** contracts named in the filter; sets the chunk size */
+  addresses?: number;
+  keep?: boolean;
+}): Promise<S> {
+  const keep = o.keep ?? true;
+  const run = async () => {
+    const have = (cursors.get(o.key) ?? (keep ? stored<Cursor<S>>(o.key) : undefined)) as Cursor<S> | undefined;
+    const start = have && have.to + 1n > o.from ? have.to + 1n : o.from;
+    let acc = have ? have.acc : o.init;
+    if (start > o.to) return acc;
+    const logs = await getLogsChunked(o.read, start, o.to, o.addresses);
+    const safe = o.to - SETTLE;
+    if (safe >= start) {
+      acc = o.fold(acc, logs.filter(l => l.blockNumber <= safe));
+      const next = {to: safe, acc};
+      cursors.set(o.key, next);
+      if (keep) store(o.key, next);
+    }
+    return o.fold(acc, logs.filter(l => l.blockNumber > safe));
+  };
+  // one reader per key at a time: the second caller finds the first one's work done
+  const p = (queues.get(o.key) ?? Promise.resolve()).then(run);
+  queues.set(o.key, p.catch(() => undefined));
+  return p;
+}
+
+const facts = new Map<string, Promise<unknown>>();
+/** A fact that never changes (who sent a transaction): read once per browser. */
+export function once<V>(key: string, read: () => Promise<V>): Promise<V> {
+  let hit = facts.get(key) as Promise<V> | undefined;
+  if (!hit) {
+    const kept = stored<{v: V}>(`fact:${key}`);
+    hit = kept
+      ? Promise.resolve(kept.v)
+      : read().then(v => {
+          store(`fact:${key}`, {v});
+          return v;
+        });
+    hit.catch(() => facts.delete(key));
+    facts.set(key, hit);
+  }
+  return hit;
+}
+
+const tsCache = new Map<bigint, Promise<number>>();
+export function blockTimestamp(n: bigint): Promise<number> {
+  let hit = tsCache.get(n);
+  if (!hit) {
+    hit = publicClient.getBlock({blockNumber: n}).then(b => Number(b.timestamp) * 1000);
+    hit.catch(() => tsCache.delete(n));
+    tsCache.set(n, hit);
+  }
+  return hit;
+}
+
+/** When a log's block was produced, in ms. dRPC puts the time on the log itself; an RPC that does not costs one block read. */
+export function logTimestamp(l: {blockNumber: bigint; blockTimestamp?: bigint | null}): Promise<number> {
+  if (l.blockTimestamp) {
+    const ts = Promise.resolve(Number(l.blockTimestamp) * 1000);
+    tsCache.set(l.blockNumber, ts);
+    return ts;
+  }
+  return blockTimestamp(l.blockNumber);
 }
 
 export const migrateAbi = parseAbi([

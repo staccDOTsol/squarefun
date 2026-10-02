@@ -3,6 +3,7 @@ import {ago, eth, pct, short} from '../lib/format';
 import {Link} from '../lib/router';
 import {Badge, Progress, Skeleton} from './ui/Bits';
 import {ReferenceMeter} from './ReferenceMeter';
+import {Flash} from './ui/Live';
 
 export function TokenImage({l, className = ''}: {l: Pick<Launch, 'image' | 'symbol'>; className?: string}) {
   if (l.image) {
@@ -22,7 +23,7 @@ export function TokenCard({l, index = 0}: {l: Launch; index?: number}) {
   return (
     <Link
       to={`/t/${l.token}`}
-      className="anim-rise group block rounded-lg border border-ink-800 bg-ink-900 p-3 transition-[border-color,transform,box-shadow] duration-200 ease-[var(--ease-out-quart)] hover:-translate-y-0.5 hover:border-ink-600 hover:shadow-[0_8px_24px_-12px_oklch(0_0_0/0.8)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass-400"
+      className="anim-rise group block rounded-lg border border-ink-800 bg-ink-900 p-3 transition-[border-color,transform,box-shadow] duration-200 ease-[var(--ease-out-quart)] hover:-translate-y-0.5 hover:border-ink-600 hover:shadow-[0_8px_24px_-12px_oklch(0_0_0/0.8)] active:translate-y-0 active:border-brass-700/60 active:duration-75 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass-400"
       style={{animationDelay: `${Math.min(index, 11) * 30}ms`}}>
       <div className="flex gap-3">
         <TokenImage l={l} className="size-16 text-sm" />
@@ -38,7 +39,10 @@ export function TokenCard({l, index = 0}: {l: Launch; index?: number}) {
           </div>
           <div className="num mt-2 flex items-center gap-3 text-[12px] text-ink-400">
             <span>
-              <span className="text-ink-500">mc</span> <span className="text-ink-200">{eth(l.marketCapEth)}</span>
+              <span className="text-ink-500">mc</span>{' '}
+              <Flash value={l.marketCapEth} className="text-ink-200">
+                {eth(l.marketCapEth)}
+              </Flash>
             </span>
             <span>
               <span className="text-ink-500">by</span> {short(l.creator, 3)}
@@ -55,7 +59,9 @@ export function TokenCard({l, index = 0}: {l: Launch; index?: number}) {
       </div>
       <div className="mt-2.5 flex items-center justify-between">
         <ReferenceMeter refs={l.referencesThisBlock} compact freeRefs={l.twoRatchets ? 2 : 1} />
-        <span className="num text-[11px] text-ink-500">{l.tradeCount} trades</span>
+        <Flash value={l.tradeCount} tint={false} className="num text-[11px] text-ink-500">
+          {l.tradeCount} trades
+        </Flash>
       </div>
     </Link>
   );

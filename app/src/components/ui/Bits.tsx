@@ -45,9 +45,9 @@ export function Tabs<T extends string>({
             role="tab"
             aria-selected={active}
             onClick={() => onChange(o.value)}
-            className={`rounded-[5px] font-medium transition-[background-color,color] duration-150 ease-[var(--ease-out-quart)] ${
+            className={`rounded-[5px] font-medium transition-[background-color,color,transform] duration-150 ease-[var(--ease-out-quart)] ${
               size === 'sm' ? 'h-7 px-2.5 text-[13px]' : 'h-9 px-3.5 text-sm'
-            } ${active ? 'bg-ink-700 text-ink-100' : 'text-ink-400 hover:text-ink-200'} focus-visible:outline-2 focus-visible:outline-brass-400`}>
+            } ${active ? 'bg-ink-700 text-ink-100' : 'text-ink-400 hover:text-ink-200'} active:translate-y-px active:duration-75 focus-visible:outline-2 focus-visible:outline-brass-400`}>
             {o.label}
             {o.count !== undefined && <span className="num ml-1.5 text-[11px] text-ink-500">{o.count}</span>}
           </button>
@@ -86,7 +86,7 @@ export function ErrorBox({title, body, retry}: {title: string; body?: string; re
       <p className="font-medium text-down-400">{title}</p>
       {body && <p className="mt-1 text-sm text-ink-300">{body}</p>}
       {retry && (
-        <button onClick={retry} className="mt-3 text-sm text-brass-400 underline-offset-4 hover:underline focus-visible:outline-brass-400">
+        <button onClick={retry} className="mt-3 text-sm text-brass-400 underline-offset-4 hover:underline active:text-brass-300 focus-visible:outline-brass-400">
           Try again
         </button>
       )}

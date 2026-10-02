@@ -1,16 +1,20 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import type {Address} from 'viem';
+import {ActivityBeat, ActivityFeed, LeaderTable, LiveHeading} from '../components/Activity';
 import {CurveChart} from '../components/CurveChart';
 import {TokenImage} from '../components/TokenCard';
 import {TradePanel} from '../components/TradePanel';
 import {Button} from '../components/ui/Button';
 import {Badge, Empty, ErrorBox, Progress, Skeleton, toast} from '../components/ui/Bits';
+import {Flash, Heartbeat, useArrivals} from '../components/ui/Live';
+import {useActivity} from '../lib/activity';
+import {useSquareLeaders} from '../lib/leaders';
 import {BRAND} from '../lib/brand';
 import {ADDR, robinhood} from '../lib/chain';
 import {draws as loadDraws, type Draw} from '../lib/moon';
 import {data} from '../lib/data';
 import {useLive} from '../lib/live';
-import {ago, eth, num, pct, short} from '../lib/format';
+import {ago, eth, num, pct, price, short} from '../lib/format';
 import {Link} from '../lib/router';
 import type {Launch, Reference, Trade} from '../lib/types';
 
@@ -22,6 +26,11 @@ export function Token({address}: {address: string}) {
   const [tab, setTab] = useState<'trades' | 'references'>('trades');
   const [sheet, setSheet] = useState(false);
   const [head, setHead] = useState<bigint | null>(null);
+  /** goes up on every read that came back, new blocks or not: the heartbeat's bar starts again */
+  const [beat, setBeat] = useState(0);
+  // this token's slice of the site's one activity read, and who has paid it the most in fees
+  const activity = useActivity({token: address, family: 'square'});
+  const leaders = useSquareLeaders(address);
   /** last block whose logs are in `trades`/`refs`; the live loop reads from here forward */
   const seen = useRef<bigint | null>(null);
   const live = useRef<Launch | null>(null);
@@ -66,6 +75,7 @@ export function Token({address}: {address: string}) {
     const from = seen.current;
     if (!cur || from === null) return;
     const to = await data.head();
+    setBeat(b => b + 1);
     if (to <= from) return;
     const range = {from: from + 1n, to};
     const [t, r, fresh] = await Promise.all([
@@ -134,28 +144,26 @@ export function Token({address}: {address: string}) {
             </h1>
             {l.kind === 'pools' ? <Badge tone="brass">pools.xyz</Badge> : graduated ? <Badge tone="brass">graduated</Badge> : <Badge>on the curve</Badge>}
             {head !== null && (
-              <span className="num inline-flex items-center gap-1.5 text-[11px] text-ink-500" title="Updates every block, no refresh needed">
-                <span className="relative flex size-1.5">
-                  <span className="anim-pulse absolute inline-flex size-full rounded-full bg-up-500 opacity-60" />
-                  <span className="relative inline-flex size-1.5 rounded-full bg-up-400" />
-                </span>
-                live · #{head.toString()}
+              <span title="Updates every couple of seconds, no refresh needed">
+                <Heartbeat every={2000} beat={beat} label={`live · #${head.toString()}`} />
               </span>
             )}
             <dl className="num ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
-              <Stat k="mc" v={eth(l.marketCapEth)} />
-              {l.kind !== 'pools' && <Stat k="raised" v={`${l.quoteReserve.toFixed(3)} ETH`} />}
+              <Stat k="price" v={`${price(l.priceEth)} ETH`} n={l.priceEth} />
+              <Stat k="mc" v={eth(l.marketCapEth)} n={l.marketCapEth} />
+              {l.kind !== 'pools' && <Stat k="raised" v={`${l.quoteReserve.toFixed(3)} ETH`} n={l.quoteReserve} />}
+              <Stat k="refs this block" v={String(l.referencesThisBlock)} n={l.referencesThisBlock} plain />
               {l.moonJarEth !== undefined ? (
-                <Stat k="moon jar" v={eth(l.moonJarEth)} tone="brass" />
+                <Stat k="moon jar" v={eth(l.moonJarEth)} n={l.moonJarEth} tone="brass" plain />
               ) : (
-                <Stat k="square paid" v={`${num(l.squarePaid)} ${l.symbol}`} tone="brass" />
+                <Stat k="square paid" v={`${num(l.squarePaid)} ${l.symbol}`} n={l.squarePaid} tone="brass" plain />
               )}
               <button
                 onClick={() => {
                   navigator.clipboard?.writeText(l.token);
                   toast('Address copied');
                 }}
-                className="rounded border border-ink-800 px-2 py-0.5 text-ink-400 transition-colors hover:border-ink-600 hover:text-ink-200 focus-visible:outline-brass-400"
+                className="rounded border border-ink-800 px-2 py-0.5 text-ink-400 transition-colors hover:border-ink-600 hover:text-ink-200 active:translate-y-px active:bg-ink-850 focus-visible:outline-brass-400"
                 title={l.token}>
                 {short(l.token)} ⧉
               </button>
@@ -171,7 +179,7 @@ export function Token({address}: {address: string}) {
                     toast('Link copied');
                   }
                 }}
-                className="rounded border border-ink-800 px-2 py-0.5 text-ink-400 transition-colors hover:border-ink-600 hover:text-ink-200 focus-visible:outline-brass-400">
+                className="rounded border border-ink-800 px-2 py-0.5 text-ink-400 transition-colors hover:border-ink-600 hover:text-ink-200 active:translate-y-px active:bg-ink-850 focus-visible:outline-brass-400">
                 share
               </button>
               <a
@@ -194,6 +202,24 @@ export function Token({address}: {address: string}) {
       <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_360px]">
         <div className="min-w-0 space-y-4">
           {trades ? <CurveChart trades={trades} symbol={l?.symbol ?? ''} /> : <Skeleton className="h-72 w-full" />}
+
+          {/* what just happened to this token, and who has paid it the most: one line a row, newest and largest first */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <section aria-labelledby="token-activity-h" className="min-w-0">
+              <LiveHeading id="token-activity-h" right={<ActivityBeat beat={activity.beat} />}>
+                Activity
+              </LiveHeading>
+              <div className="mt-2">
+                <ActivityFeed {...activity} rows={8} showToken={false} empty="Nothing yet. Trades and fees on this token show up here as they land." />
+              </div>
+            </section>
+            <section aria-labelledby="token-leaders-h" className="min-w-0">
+              <LiveHeading id="token-leaders-h">Most paid to the square</LiveHeading>
+              <div className="mt-2">
+                <LeaderTable {...leaders} unit={l?.symbol ?? ''} show={8} empty="Nobody has paid a reference fee on this token yet." />
+              </div>
+            </section>
+          </div>
 
           {l && ADDR.hero?.jar && ADDR.hero.token.toLowerCase() === l.token.toLowerCase() && <MoonDraws jar={ADDR.hero.jar} from={l.createdBlock} />}
 
@@ -249,7 +275,7 @@ export function Token({address}: {address: string}) {
                 role="tab"
                 aria-selected={tab === t}
                 onClick={() => setTab(t)}
-                className={`-mb-px border-b-2 px-3 py-2 text-sm transition-colors ${
+                className={`-mb-px border-b-2 px-3 py-2 text-sm transition-colors active:bg-ink-900 ${
                   tab === t ? 'border-brass-500 text-ink-100' : 'border-transparent text-ink-400 hover:text-ink-200'
                 } focus-visible:outline-brass-400`}>
                 {t === 'trades' ? (l?.kind === 'pools' ? 'Trades' : 'Curve trades') : 'References paid'}
@@ -269,7 +295,7 @@ export function Token({address}: {address: string}) {
         <>
           <div className="fixed inset-x-0 bottom-0 z-30 border-t border-ink-800 bg-ink-950/95 p-3 backdrop-blur-sm lg:hidden">
             <Button className="w-full" size="lg" onClick={() => setSheet(true)}>
-              {graduated ? 'Pool status' : `Trade ${l.symbol}`}
+              {graduated && l.kind !== 'pools' ? 'Pool status' : `Trade ${l.symbol}`}
             </Button>
           </div>
           {sheet && (
@@ -287,16 +313,29 @@ export function Token({address}: {address: string}) {
   );
 }
 
-function Stat({k, v, tone}: {k: string; v: string; tone?: 'brass'}) {
+/** A header figure. `n` is what is watched: when it moves the figure rolls and holds a tint (`plain`: no green or red, up is not good news). */
+function Stat({k, v, n, tone, plain}: {k: string; v: string; n: number; tone?: 'brass'; plain?: boolean}) {
   return (
     <div className="flex items-baseline gap-1.5">
       <dt className="text-ink-500">{k}</dt>
-      <dd className={tone === 'brass' ? 'text-brass-300' : 'text-ink-200'}>{v}</dd>
+      <dd className={tone === 'brass' ? 'text-brass-300' : 'text-ink-200'}>
+        <Flash value={n} tint={!plain}>
+          {v}
+        </Flash>
+      </dd>
     </div>
   );
 }
 
 function TradesTable({trades, symbol, explorer}: {trades: Trade[] | null; symbol: string; explorer: string}) {
+  const rows = [...(trades ?? [])].reverse().slice(0, 50);
+  const arrival = useArrivals(
+    rows.map(t => t.tx + t.side + t.tokens),
+    trades !== null,
+  );
+  // a trade in the top tenth of the ones on screen is jolted as it lands
+  const sizes = rows.map(t => t.quote).sort((a, b) => a - b);
+  const bar = sizes.length >= 10 ? sizes[Math.floor(sizes.length * 0.9)] : Infinity;
   if (!trades) return <Skeleton className="h-40 w-full" />;
   if (trades.length === 0) return <p className="py-8 text-center text-sm text-ink-500">No trades in the last few hours.</p>;
   return (
@@ -313,8 +352,8 @@ function TradesTable({trades, symbol, explorer}: {trades: Trade[] | null; symbol
           </tr>
         </thead>
         <tbody>
-          {[...trades].reverse().slice(0, 50).map(t => (
-            <tr key={t.tx + t.side + t.tokens} className="border-t border-ink-850 hover:bg-ink-900">
+          {rows.map(t => (
+            <tr key={t.tx + t.side + t.tokens} className={`border-t border-ink-850 hover:bg-ink-900 ${arrival(t.tx + t.side + t.tokens, t.quote >= bar)}`}>
               <td className="px-3 py-1.5 text-ink-500">
                 <a href={`${explorer}/tx/${t.tx}`} target="_blank" rel="noreferrer" className="hover:text-ink-200">
                   {ago(t.ts)}
@@ -334,6 +373,11 @@ function TradesTable({trades, symbol, explorer}: {trades: Trade[] | null; symbol
 }
 
 function RefsTable({refs, symbol, explorer}: {refs: Reference[] | null; symbol: string; explorer: string}) {
+  const rows = [...(refs ?? [])].reverse().slice(0, 50);
+  const arrival = useArrivals(
+    rows.map(r => r.tx + r.n),
+    refs !== null,
+  );
   if (!refs) return <Skeleton className="h-40 w-full" />;
   if (refs.length === 0)
     return (
@@ -354,8 +398,8 @@ function RefsTable({refs, symbol, explorer}: {refs: Reference[] | null; symbol: 
           </tr>
         </thead>
         <tbody>
-          {[...refs].reverse().slice(0, 50).map(r => (
-            <tr key={r.tx + r.n} className="border-t border-ink-850 hover:bg-ink-900">
+          {rows.map(r => (
+            <tr key={r.tx + r.n} className={`border-t border-ink-850 hover:bg-ink-900 ${arrival(r.tx + r.n, r.fee > 0)}`}>
               <td className="px-3 py-1.5 text-ink-500">
                 <a href={`${explorer}/tx/${r.tx}`} target="_blank" rel="noreferrer" className="hover:text-ink-200">
                   {ago(r.ts)}

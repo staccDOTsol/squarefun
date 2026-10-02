@@ -64,5 +64,12 @@
     "badge": "moon drop \u00b7 fees buy moon",
     "image": "/realmoon.png",
     "jar": "0xda0b8EF9E8f1E34217C4175f0AEf9AAEdedba8e7"
+  },
+  "contagian": {
+    "launcher": "0x62924A07935B49b487162b9aabcf7a9C35fc8531",
+    "strategy": "0xDBbBF22a02D44A47B88aF4e907F6254CA0933c84",
+    "vaultImplementation": "0x8867cb4adbeB2CE26D27410d9437E2D51FaE94ea",
+    "tokenFactory": "0x957FAd3C7879278B03ae90735b0D8F6300Dd29f7",
+    "deployBlock": 78447180
   }
 }

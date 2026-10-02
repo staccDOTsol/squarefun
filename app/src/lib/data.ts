@@ -6,6 +6,8 @@ import {
   LAUNCH_FACTORY,
   ZERO,
   blockTimestamp,
+  logTimestamp,
+  scan,
   curveAbi,
   deployed,
   erc20Abi,
@@ -43,39 +45,86 @@ async function latestBlock(): Promise<bigint> {
   return publicClient.getBlockNumber();
 }
 
-/** TokenLaunched from every factory, oldest factory first. */
-async function launchLogs(fromBlock: bigint, toBlock: bigint) {
-  return getLogsChunked(
-    (a, b) => publicClient.getLogs({address: FACTORIES, event: factoryAbi[0], fromBlock: a, toBlock: b}),
-    fromBlock,
-    toBlock,
-  );
+type Launched = {token: Address; curve: Address; deployer: Address; block: bigint; factory: Address; ts: number};
+
+/** Every TokenLaunched from every factory, oldest first. Read once per browser, then only the new blocks. */
+function launched(to: bigint): Promise<Launched[]> {
+  return scan({
+    key: `launched:${FACTORIES.join()}`,
+    read: (a, b) => publicClient.getLogs({address: FACTORIES, event: factoryAbi[0], fromBlock: a, toBlock: b}),
+    addresses: FACTORIES.length,
+    from: BigInt(ADDR.deployBlock),
+    to,
+    init: [] as Launched[],
+    fold: (acc, logs) => [
+      ...acc,
+      ...logs.map(l => ({token: l.args.token!, curve: l.args.curve!, deployer: l.args.deployer!, block: l.blockNumber, factory: l.address as Address, ts: Number(l.blockTimestamp ?? 0n) * 1000})),
+    ],
+  });
 }
 
-/** The factory that launched `token`, with its record; null when none did. */
+/** Curve trades in the lookback window, counted per curve (lowercase). The window slides: each call reads only the new blocks. */
+async function tradeCounts(curves: Address[], to: bigint): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (curves.length === 0) return counts;
+  const from = to > LOOKBACK ? to - LOOKBACK : BigInt(ADDR.deployBlock);
+  const seen = await scan({
+    key: 'curve-trades',
+    read: (a, b) => publicClient.getLogs({address: curves, events: [curveAbi[0], curveAbi[1]], fromBlock: a, toBlock: b}),
+    addresses: curves.length,
+    from,
+    to,
+    init: [] as Array<{curve: string; block: bigint}>,
+    // log.address is lowercase from the RPC; decoded args are checksummed. Key by lowercase.
+    fold: (acc, logs) => [...acc.filter(t => t.block >= from), ...logs.map(l => ({curve: l.address.toLowerCase(), block: l.blockNumber}))],
+    keep: false,
+  });
+  for (const t of seen) if (t.block >= from) counts.set(t.curve, (counts.get(t.curve) ?? 0) + 1);
+  return counts;
+}
+
+/** The factory that launched `token`, with its record; null when none did. The newest factory wins. */
 async function recordFor(token: Address) {
-  for (const factory of [...FACTORIES].reverse()) {
-    const record = await publicClient.readContract({address: factory, abi: factoryAbi, functionName: 'getLaunchedToken', args: [token]});
-    if (record.exists) return {factory, record};
-  }
+  const records = await Promise.all(
+    FACTORIES.map(factory => publicClient.readContract({address: factory, abi: factoryAbi, functionName: 'getLaunchedToken', args: [token]})),
+  );
+  for (let i = FACTORIES.length - 1; i >= 0; i--) if (records[i].exists) return {factory: FACTORIES[i], record: records[i]};
   return null;
 }
 
-async function hydrate(token: Address, curve: Address, creator: Address, createdBlock: bigint, tradeCount: number, factory: Address): Promise<Launch> {
-  const [info, name, symbol, totalSupply, refs, deadBal, reserves, realQuote, threshold, record, createdAt, slow] = await Promise.all([
+/** What a launch fixed at creation: read once per page view. */
+const statics = new Map<string, ReturnType<typeof readFixed>>();
+function readFixed(token: Address, curve: Address) {
+  return Promise.all([
     publicClient.readContract({address: token, abi: tokenAbi, functionName: 'getTokenInfo'}),
     publicClient.readContract({address: token, abi: tokenAbi, functionName: 'name'}),
     publicClient.readContract({address: token, abi: tokenAbi, functionName: 'symbol'}),
+    publicClient.readContract({address: curve, abi: curveAbi, functionName: 'graduationThreshold'}),
+    // v1 tokens have no slow ratchet; the probe reverts and that is the answer
+    publicClient.readContract({address: token, abi: tokenAbi, functionName: 'slowFeeBps', args: [2n]}).then(() => true).catch(() => false),
+  ]);
+}
+function fixed(token: Address, curve: Address) {
+  const k = token.toLowerCase();
+  let hit = statics.get(k);
+  if (!hit) {
+    hit = readFixed(token, curve);
+    hit.catch(() => statics.delete(k));
+    statics.set(k, hit);
+  }
+  return hit;
+}
+
+async function hydrate(token: Address, curve: Address, creator: Address, createdBlock: bigint, tradeCount: number, factory: Address, createdTs = 0): Promise<Launch> {
+  const [[info, name, symbol, threshold, slow], totalSupply, refs, deadBal, reserves, realQuote, record, createdAt] = await Promise.all([
+    fixed(token, curve),
     publicClient.readContract({address: token, abi: tokenAbi, functionName: 'totalSupply'}),
     publicClient.readContract({address: token, abi: tokenAbi, functionName: 'referencesThisBlock'}),
     publicClient.readContract({address: token, abi: tokenAbi, functionName: 'balanceOf', args: [DEAD]}),
     publicClient.readContract({address: curve, abi: curveAbi, functionName: 'getReserves'}),
     publicClient.readContract({address: curve, abi: curveAbi, functionName: 'realQuoteReserve'}),
-    publicClient.readContract({address: curve, abi: curveAbi, functionName: 'graduationThreshold'}),
     publicClient.readContract({address: factory, abi: factoryAbi, functionName: 'getLaunchedToken', args: [token]}),
-    blockTimestamp(createdBlock),
-    // v1 tokens have no slow ratchet; the probe reverts and that is the answer
-    publicClient.readContract({address: token, abi: tokenAbi, functionName: 'slowFeeBps', args: [2n]}).then(() => true).catch(() => false),
+    createdTs || blockTimestamp(createdBlock),
   ]);
   const [vq, vt] = reserves;
   const priceEth = vt === 0n ? 0 : f(vq) / f(vt);
@@ -130,50 +179,48 @@ export const data = {
   async launches(): Promise<Launch[]> {
     if (!deployed) return [];
     const to = await latestBlock();
-    const logs = await launchLogs(BigInt(ADDR.deployBlock), to);
-    // activity: curve trades in the lookback window, counted per curve in one scan
-    const from = to > LOOKBACK ? to - LOOKBACK : BigInt(ADDR.deployBlock);
-    const curves = logs.map(l => l.args.curve!);
-    const counts = new Map<string, number>();
-    if (curves.length) {
-      const tradeLogs = await getLogsChunked(
-        (a, b) => publicClient.getLogs({address: curves, events: [curveAbi[0], curveAbi[1]], fromBlock: a, toBlock: b}),
-        from,
-        to,
-      );
-      // log.address is lowercase from the RPC; decoded args are checksummed. Key by lowercase.
-      for (const t of tradeLogs) {
-        const k = t.address.toLowerCase();
-        counts.set(k, (counts.get(k) ?? 0) + 1);
-      }
-    }
     const [pad, viaPools] = await Promise.all([
-      Promise.all(
-        logs.map(l =>
-          hydrate(l.args.token!, l.args.curve!, l.args.deployer!, l.blockNumber, counts.get(l.args.curve!.toLowerCase()) ?? 0, l.address as Address),
-        ),
-      ),
+      (async () => {
+        const list = await launched(to);
+        // activity and each launch's live numbers go out together
+        const [counts, rows] = await Promise.all([
+          tradeCounts(list.map(l => l.curve), to),
+          Promise.all(list.map(l => hydrate(l.token, l.curve, l.deployer, l.block, 0, l.factory, l.ts))),
+        ]);
+        return rows.map(r => ({...r, tradeCount: counts.get(r.curve.toLowerCase()) ?? 0}));
+      })(),
       // a failure reading Pools launches must not empty the board
-      pools.launches().catch(() => [] as Launch[]),
+      pools.launches(to).catch(() => [] as Launch[]),
     ]);
     return [...pad, ...viaPools];
   },
 
   async launch(token: Address): Promise<Launch | null> {
     if (!deployed) return null;
-    const found = await recordFor(token);
+    const [found, to] = await Promise.all([recordFor(token), latestBlock()]);
     if (!found) return pools.launch(token);
     const {factory, record} = found;
-    const to = await latestBlock();
-    const logs = await launchLogs(BigInt(ADDR.deployBlock), to);
-    const mine = logs.find(l => l.args.token?.toLowerCase() === token.toLowerCase());
     const from = to > LOOKBACK ? to - LOOKBACK : BigInt(ADDR.deployBlock);
-    const tradeLogs = await getLogsChunked(
-      (a, b) => publicClient.getLogs({address: record.curve, events: [curveAbi[0], curveAbi[1]], fromBlock: a, toBlock: b}),
-      from,
-      to,
-    );
-    return hydrate(token, record.curve, record.deployer, mine?.blockNumber ?? BigInt(ADDR.deployBlock), tradeLogs.length, factory);
+    const [list, tradeLogs] = await Promise.all([
+      launched(to),
+      getLogsChunked(
+        (a, b) => publicClient.getLogs({address: record.curve, events: [curveAbi[0], curveAbi[1]], fromBlock: a, toBlock: b}),
+        from,
+        to,
+      ),
+    ]);
+    const mine = list.find(l => l.token.toLowerCase() === token.toLowerCase());
+    return hydrate(token, record.curve, record.deployer, mine?.block ?? BigInt(ADDR.deployBlock), tradeLogs.length, factory, mine?.ts);
+  },
+
+  /**
+   * Every listed token as of block `to`, for the activity feed: pad launches with their curves and
+   * Pools launches with their pool ids. Two remembered scans, nothing read per token.
+   */
+  async roster(to: bigint): Promise<{pad: Array<{token: Address; curve: Address}>; pools: Array<{token: Address; id: `0x${string}`; block: bigint}>}> {
+    if (!deployed) return {pad: [], pools: []};
+    const [pad, viaPools] = await Promise.all([launched(to), pools.roster(to).catch(() => [])]);
+    return {pad: pad.map(l => ({token: l.token, curve: l.curve})), pools: viaPools};
   },
 
   /** Current chain head. Pages poll this to know when there is something new to read. */
@@ -184,7 +231,7 @@ export const data = {
   /** Re-read a launch's live numbers (reserves, references this block, phase). Cheap: one batched call. */
   async refresh(l: Launch, tradeCount = l.tradeCount): Promise<Launch> {
     if (l.kind === 'pools') return pools.refresh(l, tradeCount);
-    return hydrate(l.token, l.curve, l.creator, l.createdBlock, tradeCount, l.factory);
+    return hydrate(l.token, l.curve, l.creator, l.createdBlock, tradeCount, l.factory, l.createdAt);
   },
 
   /**
@@ -202,14 +249,14 @@ export const data = {
       from,
       to,
     );
-    const out: Trade[] = [];
-    for (const l of logs) {
+    const stamps = await Promise.all(logs.map(logTimestamp));
+    return logs.map((l, i) => {
       const buy = l.eventName === 'CurveBuy';
       const a = l.args as {quoteIn?: bigint; tokensOut?: bigint; tokensIn?: bigint; quoteOut?: bigint; fee: bigint; buyer?: Address; seller?: Address};
       const quote = f(buy ? a.quoteIn! : a.quoteOut!);
       const tokens = f(buy ? a.tokensOut! : a.tokensIn!);
-      out.push({
-        ts: await blockTimestamp(l.blockNumber),
+      return {
+        ts: stamps[i],
         block: l.blockNumber,
         side: buy ? 'buy' : 'sell',
         quote,
@@ -218,9 +265,8 @@ export const data = {
         fee: f(a.fee),
         who: (buy ? a.buyer : a.seller)!,
         tx: l.transactionHash,
-      });
-    }
-    return out;
+      };
+    });
   },
 
   async references(token: Address, range?: {from: bigint; to: bigint}): Promise<Reference[]> {
@@ -232,19 +278,16 @@ export const data = {
       from,
       to,
     );
-    const out: Reference[] = [];
-    for (const l of logs) {
-      out.push({
-        ts: await blockTimestamp(l.blockNumber),
-        block: l.blockNumber,
-        from: l.args.from!,
-        to: l.args.to!,
-        n: Number(l.args.n!),
-        fee: f(l.args.fee!),
-        tx: l.transactionHash,
-      });
-    }
-    return out;
+    const stamps = await Promise.all(logs.map(logTimestamp));
+    return logs.map((l, i) => ({
+      ts: stamps[i],
+      block: l.blockNumber,
+      from: l.args.from!,
+      to: l.args.to!,
+      n: Number(l.args.n!),
+      fee: f(l.args.fee!),
+      tx: l.transactionHash,
+    }));
   },
 
   async sink(you?: Address): Promise<SinkState | null> {
@@ -261,12 +304,11 @@ export const data = {
     const wizardsBps = Number(poolBps) + Number(legacyBps);
     const to = await latestBlock();
     // every launch is a potential payer; show the ones with anything landed or distributed
-    const launches = await launchLogs(BigInt(ADDR.deployBlock), to);
     // every launch, plus WETH: the settler pays the pool in wrapped ETH
     // launches made through Pools pay their own settler; its venue is the token's v4 pool
-    const viaPools = await pools.launches().catch(() => [] as Launch[]);
-    const poolsSet = new Set(viaPools.map(l => l.token.toLowerCase()));
-    const tokens = [...new Set([...launches.map(l => l.args.token!.toLowerCase() as Address), ...viaPools.map(l => l.token.toLowerCase() as Address), WETH.toLowerCase() as Address])].filter(t => t !== ADDR.placeholder?.toLowerCase());
+    const [launches, viaPools] = await Promise.all([launched(to), pools.tokens(to).catch(() => [] as Address[])]);
+    const poolsSet = new Set(viaPools.map(t => t.toLowerCase()));
+    const tokens = [...new Set([...launches.map(l => l.token.toLowerCase() as Address), ...viaPools.map(t => t.toLowerCase() as Address), WETH.toLowerCase() as Address])].filter(t => t !== ADDR.placeholder?.toLowerCase());
     const perToken = await Promise.all(
       tokens.map(async token => {
         const [symbol, count, claimable, poolBal, poolReserved, legacyBal, legacyReserved, wizBal, wizReserved, settlerBal] = await Promise.all([
@@ -339,12 +381,15 @@ export const data = {
   async migrations(): Promise<Address[]> {
     if (!scooperDeployed) return [];
     const to = await latestBlock();
-    const logs = await getLogsChunked(
-      (a, b) => publicClient.getLogs({address: ADDR.migrateFactory!, event: migrateFactoryAbi[0], fromBlock: a, toBlock: b}),
-      BigInt(ADDR.deployBlock),
+    const made = await scan({
+      key: `migrations:${ADDR.migrateFactory}`,
+      read: (a, b) => publicClient.getLogs({address: ADDR.migrateFactory!, event: migrateFactoryAbi[0], fromBlock: a, toBlock: b}),
+      from: BigInt(ADDR.deployBlock),
       to,
-    );
-    return logs.map(l => l.args.migrate!).reverse();
+      init: [] as Address[],
+      fold: (acc, logs) => [...acc, ...logs.map(l => l.args.migrate!)],
+    });
+    return [...made].reverse();
   },
 
   /** Which venue would sell `token`, plus its name and symbol; venue is zero when nothing can. */
@@ -391,12 +436,16 @@ export const data = {
       yours = {deposited: f(d), credits: f(c), claimed: f(cl), claimable: f(ca), rescued: rb, oldBalance: f(bal), oldAllowance: f(al)};
     }
     const to = await latestBlock();
-    const deps = await getLogsChunked(
-      (a, b) => publicClient.getLogs({address, event: migrateAbi[0], fromBlock: a, toBlock: b}),
-      BigInt(ADDR.deployBlock),
-      to,
-    );
-    const depositors = new Set(deps.map(l => l.args.who!.toLowerCase())).size;
+    const depositors = (
+      await scan({
+        key: `depositors:${address}`,
+        read: (a, b) => publicClient.getLogs({address, event: migrateAbi[0], fromBlock: a, toBlock: b}),
+        from: BigInt(ADDR.deployBlock),
+        to,
+        init: [] as string[],
+        fold: (acc, logs) => [...new Set([...acc, ...logs.map(l => l.args.who!.toLowerCase())])],
+      })
+    ).length;
     let stage: MigrationStage;
     if (converted) stage = 'claims';
     else if (failed || rescued) stage = 'failed';

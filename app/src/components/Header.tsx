@@ -9,6 +9,7 @@ import {Mark} from './ui/Bits';
 const nav = [
   {to: '/', label: 'Board'},
   {to: '/square', label: `$${BRAND.token}`},
+  {to: '/contagian', label: 'Contagian'},
   {to: '/migrate', label: 'Migrate'},
   {to: '/how', label: 'How it works'},
 ];

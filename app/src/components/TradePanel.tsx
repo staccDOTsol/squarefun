@@ -146,7 +146,7 @@ export function TradePanel({l, onTraded}: {l: Launch; onTraded?: () => void}) {
               key={s}
               onClick={() => setSlippage(s)}
               aria-pressed={slippage === s}
-              className={`num rounded px-1.5 py-0.5 transition-colors ${slippage === s ? 'bg-ink-700 text-ink-100' : 'hover:text-ink-300'}`}>
+              className={`num rounded px-1.5 py-0.5 transition-colors active:translate-y-px ${slippage === s ? 'bg-ink-700 text-ink-100' : 'hover:text-ink-300'}`}>
               {s}%
             </button>
           ))}
@@ -171,7 +171,7 @@ export function TradePanel({l, onTraded}: {l: Launch; onTraded?: () => void}) {
               <button
                 key={q}
                 onClick={() => setAmount(q)}
-                className="num rounded border border-ink-800 px-2 py-1 text-[12px] text-ink-400 transition-colors hover:border-ink-600 hover:text-ink-200 focus-visible:outline-brass-400">
+                className="num rounded border border-ink-800 px-2 py-1 text-[12px] text-ink-400 transition-colors hover:border-ink-600 hover:text-ink-200 active:translate-y-px active:bg-ink-850 focus-visible:outline-brass-400">
                 {q}
               </button>
             ))}
@@ -181,7 +181,7 @@ export function TradePanel({l, onTraded}: {l: Launch; onTraded?: () => void}) {
                 key={p}
                 onClick={() => quick(p)}
                 title={p === 1 ? (side === 'buy' ? '99% of your ETH, the rest is gas' : 'Everything') : `${p * 100}% of what you hold`}
-                className="num rounded border border-brass-700/40 px-2 py-1 text-[12px] text-brass-300 transition-colors hover:border-brass-500 hover:text-brass-200 focus-visible:outline-brass-400">
+                className="num rounded border border-brass-700/40 px-2 py-1 text-[12px] text-brass-300 transition-colors hover:border-brass-500 hover:text-brass-200 active:translate-y-px active:bg-brass-900 focus-visible:outline-brass-400">
                 {p === 1 ? 'max' : `${p * 100}%`}
               </button>
             ))}

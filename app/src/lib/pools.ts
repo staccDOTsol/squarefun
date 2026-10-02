@@ -9,7 +9,7 @@ import {
   type Hex,
   type WalletClient,
 } from 'viem';
-import {ADDR, ZERO, blockTimestamp, erc20Abi, getLogsChunked, publicClient, robinhood} from './chain';
+import {ADDR, ZERO, blockTimestamp, erc20Abi, getLogsChunked, logTimestamp, once, publicClient, robinhood, scan} from './chain';
 import type {Launch, Reference, Trade} from './types';
 
 /**
@@ -98,13 +98,70 @@ const poolId = (token: Address): Hex =>
 const known = new Set<string>();
 export const isPoolsToken = (a: Address) => known.has(a.toLowerCase());
 
-async function createdLogs(to: bigint) {
+type Created = {token: Address; block: bigint; factory: Address; tx: Hex; ts: number};
+type Index = {created: Created[]; swaps: Record<string, number> | null; fees: Record<string, bigint> | null};
+
+/**
+ * Every Pools launch, with each one's swap count and the reference fees it has paid since its launch.
+ * Three scans whatever the number of tokens, each remembered: after the first read only new blocks
+ * are fetched. All three run to the same block, so a token is always listed before its logs are counted.
+ */
+/** Every Pools launch, oldest first: one remembered scan. */
+async function createdUpTo(to: bigint): Promise<Created[]> {
   if (!poolsDeployed) return [];
-  return getLogsChunked(
-    (a, b) => publicClient.getLogs({address: LISTED_FACTORIES, event: factoryAbi[0], fromBlock: a, toBlock: b}),
-    BigInt(P!.deployBlock),
+  const created = await scan({
+    key: `pools-created:${LISTED_FACTORIES.join()}`,
+    read: (a, b) => publicClient.getLogs({address: LISTED_FACTORIES, event: factoryAbi[0], fromBlock: a, toBlock: b}),
+    addresses: LISTED_FACTORIES.length,
+    from: BigInt(P!.deployBlock),
     to,
-  );
+    init: [] as Created[],
+    fold: (acc, logs) => [
+      ...acc,
+      ...logs.map(l => ({token: l.args.tokenAddress!, block: l.blockNumber, factory: l.address as Address, tx: l.transactionHash, ts: Number(l.blockTimestamp ?? 0n) * 1000})),
+    ],
+  });
+  for (const c of created) known.add(c.token.toLowerCase());
+  return created;
+}
+
+async function index(to: bigint): Promise<Index> {
+  if (!poolsDeployed) return {created: [], swaps: {}, fees: {}};
+  const created = await createdUpTo(to);
+  if (created.length === 0) return {created, swaps: {}, fees: {}};
+  const tokens = created.map(c => c.token);
+  const ids = tokens.map(poolId);
+  const from = created[0].block;
+  // a failed count must not take the token off the board
+  const [swaps, fees] = await Promise.all([
+    scan({
+      key: 'pools-swaps',
+      read: (a, b) => publicClient.getLogs({address: ADDR.poolManager, event: managerAbi[0], args: {id: ids}, fromBlock: a, toBlock: b}),
+      from,
+      to,
+      init: {} as Record<string, number>,
+      fold: (acc, logs) => {
+        const next = {...acc};
+        for (const l of logs) next[l.args.id!] = (next[l.args.id!] ?? 0) + 1;
+        return next;
+      },
+    }).catch(() => null),
+    scan({
+      key: 'pools-fees',
+      read: (a, b) => publicClient.getLogs({address: tokens, event: tokenAbi[0], fromBlock: a, toBlock: b}),
+      addresses: tokens.length,
+      from,
+      to,
+      init: {} as Record<string, bigint>,
+      fold: (acc, logs) => {
+        const next = {...acc};
+        // log.address is lowercase from the RPC
+        for (const l of logs) next[l.address.toLowerCase()] = (next[l.address.toLowerCase()] ?? 0n) + (l.args.fee ?? 0n);
+        return next;
+      },
+    }).catch(() => null),
+  ]);
+  return {created, swaps, fees};
 }
 
 async function swapLogs(token: Address, from: bigint, to: bigint) {
@@ -115,30 +172,46 @@ async function swapLogs(token: Address, from: bigint, to: bigint) {
   );
 }
 
-async function hydrate(token: Address, createdBlock: bigint, creator: Address, tradeCount: number, factory: Address = P!.tokenFactory): Promise<Launch> {
+const statics = new Map<string, Promise<{name: string; symbol: string; meta: readonly [string, string, string, bigint]; slowFree: bigint; buyFeeBps: number}>>();
+/** What a token fixed at launch: read once per page view. */
+function fixed(token: Address) {
+  const k = token.toLowerCase();
+  let hit = statics.get(k);
+  if (!hit) {
+    const hero = ADDR.hero?.token.toLowerCase() === k;
+    hit = Promise.all([
+      publicClient.readContract({address: token, abi: tokenAbi, functionName: 'name'}),
+      publicClient.readContract({address: token, abi: tokenAbi, functionName: 'symbol'}),
+      publicClient.readContract({address: token, abi: tokenAbi, functionName: 'metadata'}),
+      publicClient.readContract({address: token, abi: tokenAbi, functionName: 'SLOW_FREE'}).catch(() => 16n),
+      hero ? buyFee(token) : Promise.resolve(0),
+    ]).then(([name, symbol, meta, slowFree, buyFeeBps]) => ({name, symbol, meta, slowFree, buyFeeBps}));
+    hit.catch(() => statics.delete(k));
+    statics.set(k, hit);
+  }
+  return hit;
+}
+
+/** The sender of the launch transaction: the token only knows the launcher. */
+const creatorOf = (c: Created) => once(`sender:${c.tx}`, async () => (await publicClient.getTransaction({hash: c.tx})).from);
+
+async function hydrate(c: {token: Address; block: bigint; factory: Address; creator: Address; createdAt: number}, tradeCount: number, squarePaid: number): Promise<Launch> {
+  const {token} = c;
   known.add(token.toLowerCase());
-  const to = await publicClient.getBlockNumber();
-  const [name, symbol, refs, meta, spot, createdAt, feeLogs, slowFree] = await Promise.all([
-    publicClient.readContract({address: token, abi: tokenAbi, functionName: 'name'}),
-    publicClient.readContract({address: token, abi: tokenAbi, functionName: 'symbol'}),
+  const hero = ADDR.hero && ADDR.hero.token.toLowerCase() === token.toLowerCase() ? ADDR.hero : null;
+  const [{name, symbol, meta, slowFree, buyFeeBps}, refs, spot, createdAt, jar] = await Promise.all([
+    fixed(token),
     publicClient.readContract({address: token, abi: tokenAbi, functionName: 'referencesThisBlock'}),
-    publicClient.readContract({address: token, abi: tokenAbi, functionName: 'metadata'}),
     publicClient.readContract({address: P!.venue, abi: venueAbi, functionName: 'spot', args: [token]}),
-    blockTimestamp(createdBlock),
-    getLogsChunked((a, b) => publicClient.getLogs({address: token, event: tokenAbi[0], fromBlock: a, toBlock: b}), createdBlock, to),
-    publicClient.readContract({address: token, abi: tokenAbi, functionName: 'SLOW_FREE'}).catch(() => 16n),
+    c.createdAt || blockTimestamp(c.block),
+    hero?.jar
+      ? Promise.all([
+          publicClient.readContract({address: hero.jar, abi: jarAbi, functionName: 'forwarded'}),
+          publicClient.readContract({address: token, abi: erc20Abi, functionName: 'balanceOf', args: [hero.jar]}),
+        ]).catch(() => [0n, 0n] as const)
+      : null,
   ]);
   const priceEth = f(spot);
-  const hero = ADDR.hero && ADDR.hero.token.toLowerCase() === token.toLowerCase() ? ADDR.hero : null;
-  let moonJarEth: number | undefined;
-  if (hero?.jar) {
-    const [fwd, held] = await Promise.all([
-      publicClient.readContract({address: hero.jar, abi: jarAbi, functionName: 'forwarded'}),
-      publicClient.readContract({address: token, abi: erc20Abi, functionName: 'balanceOf', args: [hero.jar]}),
-    ]).catch(() => [0n, 0n] as const);
-    moonJarEth = f(fwd) + f(held) * priceEth;
-  }
-  const buyFeeBps = hero ? await buyFee(token) : 0;
   return {
     token,
     curve: token,
@@ -147,72 +220,74 @@ async function hydrate(token: Address, createdBlock: bigint, creator: Address, t
     symbol,
     image: meta[2] || hero?.image || '',
     description: meta[0],
-    creator,
+    creator: c.creator,
     createdAt,
-    createdBlock,
+    createdBlock: c.block,
     phase: 'pool',
     quoteReserve: 0,
     graduationThreshold: 0,
     priceEth,
     marketCapEth: priceEth * 1e9,
     referencesThisBlock: Number(refs),
-    squarePaid: feeLogs.reduce((s, l) => s + f(l.args.fee ?? 0n), 0),
+    squarePaid,
     tradeCount,
-    factory,
+    factory: c.factory,
     slowFree: Number(slowFree),
     twoRatchets: true,
-    moonJarEth,
+    moonJarEth: jar ? f(jar[0]) + f(jar[1]) * priceEth : undefined,
     buyFeeBps: buyFeeBps || undefined,
     socials: {website: meta[1] || undefined},
   };
 }
 
+const paid = (ix: Index, token: Address) => f(ix.fees?.[token.toLowerCase()] ?? 0n);
+
 export const pools = {
-  async launches(): Promise<Launch[]> {
+  /** Every Pools launch's token address, oldest first: the list alone, nothing read per token. */
+  async tokens(to: bigint): Promise<Address[]> {
+    return (await index(to)).created.map(c => c.token);
+  },
+
+  /** The same list for the activity feed, which counts swaps and fees itself: the creation scan alone, with each token's pool id. */
+  async roster(to: bigint): Promise<Array<{token: Address; id: Hex; block: bigint}>> {
+    return (await createdUpTo(to)).map(c => ({token: c.token, id: poolId(c.token), block: c.block}));
+  },
+
+  async launches(to?: bigint): Promise<Launch[]> {
     if (!poolsDeployed) return [];
-    const to = await publicClient.getBlockNumber();
-    const logs = await createdLogs(to);
+    const ix = await index(to ?? (await publicClient.getBlockNumber()));
     return Promise.all(
-      logs.map(async l => {
-        const token = l.args.tokenAddress!;
-        const [t, swaps] = await Promise.all([
-          publicClient.getTransaction({hash: l.transactionHash}),
-          swapLogs(token, l.blockNumber, to).catch(() => []),
-        ]);
-        return hydrate(token, l.blockNumber, t.from, swaps.length, l.address as Address);
-      }),
+      ix.created.map(async c => hydrate({...c, creator: await creatorOf(c), createdAt: c.ts}, ix.swaps?.[poolId(c.token)] ?? 0, paid(ix, c.token))),
     );
   },
 
   async launch(token: Address): Promise<Launch | null> {
     if (!poolsDeployed) return null;
-    const to = await publicClient.getBlockNumber();
-    const mine = (await createdLogs(to)).find(l => l.args.tokenAddress?.toLowerCase() === token.toLowerCase());
+    const ix = await index(await publicClient.getBlockNumber());
+    const mine = ix.created.find(c => c.token.toLowerCase() === token.toLowerCase());
     if (!mine) return null;
-    const [t, swaps] = await Promise.all([
-      publicClient.getTransaction({hash: mine.transactionHash}),
-      swapLogs(token, mine.blockNumber, to).catch(() => []),
-    ]);
-    return hydrate(mine.args.tokenAddress!, mine.blockNumber, t.from, swaps.length, mine.address as Address);
+    return hydrate({...mine, creator: await creatorOf(mine), createdAt: mine.ts}, ix.swaps?.[poolId(mine.token)] ?? 0, paid(ix, mine.token));
   },
 
-  refresh(l: Launch, tradeCount = l.tradeCount): Promise<Launch> {
-    return hydrate(l.token, l.createdBlock, l.creator, tradeCount, l.factory);
+  async refresh(l: Launch, tradeCount = l.tradeCount): Promise<Launch> {
+    const ix = await index(await publicClient.getBlockNumber());
+    // a failed fee read keeps the figure already on screen
+    return hydrate({token: l.token, block: l.createdBlock, factory: l.factory, creator: l.creator, createdAt: l.createdAt}, tradeCount, ix.fees ? paid(ix, l.token) : l.squarePaid);
   },
 
   /** Pool swaps as trades. ETH is currency0: a negative amount0 is ETH paid in, so a buy. */
   async trades(token: Address, range: {from: bigint; to: bigint}): Promise<Trade[]> {
     if (range.from > range.to) return [];
     const logs = await swapLogs(token, range.from, range.to);
-    const out: Trade[] = [];
-    for (const l of logs) {
+    const stamps = await Promise.all(logs.map(logTimestamp));
+    return logs.map((l, i) => {
       const a0 = l.args.amount0!;
       const a1 = l.args.amount1!;
       const buy = a0 < 0n;
       const quote = f(a0 < 0n ? -a0 : a0);
       const tokens = f(a1 < 0n ? -a1 : a1);
-      out.push({
-        ts: await blockTimestamp(l.blockNumber),
+      return {
+        ts: stamps[i],
         block: l.blockNumber,
         side: buy ? 'buy' : 'sell',
         quote,
@@ -221,9 +296,8 @@ export const pools = {
         fee: (quote * LP_FEE) / 1_000_000,
         who: l.args.sender!,
         tx: l.transactionHash,
-      });
-    }
-    return out;
+      };
+    });
   },
 
   async references(token: Address, range: {from: bigint; to: bigint}): Promise<Reference[]> {
@@ -233,19 +307,16 @@ export const pools = {
       range.from,
       range.to,
     );
-    const out: Reference[] = [];
-    for (const l of logs) {
-      out.push({
-        ts: await blockTimestamp(l.blockNumber),
-        block: l.blockNumber,
-        from: l.args.from!,
-        to: l.args.to!,
-        n: Number(l.args.n!),
-        fee: f(l.args.fee!),
-        tx: l.transactionHash,
-      });
-    }
-    return out;
+    const stamps = await Promise.all(logs.map(logTimestamp));
+    return logs.map((l, i) => ({
+      ts: stamps[i],
+      block: l.blockNumber,
+      from: l.args.from!,
+      to: l.args.to!,
+      n: Number(l.args.n!),
+      fee: f(l.args.fee!),
+      tx: l.transactionHash,
+    }));
   },
 
   /** Quote from Uniswap's v4 quoter, which simulates the swap against the live pool. */

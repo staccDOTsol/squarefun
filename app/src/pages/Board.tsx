@@ -1,9 +1,13 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {ActivityBeat, ActivityFeed, LeaderTable, LiveHeading} from '../components/Activity';
 import {TokenCard, TokenCardSkeleton, TokenImage} from '../components/TokenCard';
 import {ReferenceMeter} from '../components/ReferenceMeter';
 import {Button} from '../components/ui/Button';
 import {Input} from '../components/ui/Field';
 import {Badge, Empty, ErrorBox, Progress, Tabs} from '../components/ui/Bits';
+import {Flash} from '../components/ui/Live';
+import {useActivity} from '../lib/activity';
+import {useSquareLeadersAll} from '../lib/leaders';
 import {BRAND} from '../lib/brand';
 import {data} from '../lib/data';
 import {useLive} from '../lib/live';
@@ -31,8 +35,25 @@ export function Board() {
       .catch(e => setError(e instanceof Error ? e.message : 'Could not read the chain'));
   };
   useEffect(load, []);
-  // Live: re-read the board in the background; the list swaps in place, no skeleton.
-  useLive(async () => setLaunches(await data.launches()), 6000, launches !== null);
+  const [rail, setRail] = useState<'activity' | 'leaders'>('activity');
+
+  // Live: re-read the board in the background; the list swaps in place, no skeleton. The shared
+  // activity read says when a trade or a fee has landed, and the board is read again the moment
+  // one does; without one it is read every few seconds, for launches and phases.
+  const reload = useCallback(async () => setLaunches(await data.launches()), []);
+  useLive(reload, 5000, launches !== null);
+  const activity = useActivity();
+  const newest = activity.events.find(e => e.family === 'square')?.id;
+  const told = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const before = told.current;
+    told.current = newest;
+    if (before !== undefined && newest !== before) void reload().catch(() => {});
+  }, [newest, reload]);
+
+  // fees are paid in each token; the board prices them in ETH so one wallet's fees across tokens add up
+  const prices = useMemo(() => Object.fromEntries((launches ?? []).map(l => [l.token.toLowerCase(), l.priceEth])), [launches]);
+  const leaders = useSquareLeadersAll(prices);
 
   const list = useMemo(() => {
     if (!launches) return [];
@@ -104,7 +125,49 @@ export function Board() {
         </section>
       )}
 
-      <section className="mt-8 flex flex-col gap-3 md:flex-row md:items-center">
+      {/* A monitor, not a wall of cards: launches on the left, what just happened beside them. Under xl the rail sits above the list, one tab at a time. */}
+      <div className="mt-8 xl:grid xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start xl:gap-6">
+        <aside className="mb-8 xl:sticky xl:top-[72px] xl:col-start-2 xl:row-start-1 xl:mb-0 xl:max-h-[calc(100dvh-88px)] xl:overflow-y-auto" aria-label="Live">
+          <div className="mb-2 flex items-center justify-between xl:hidden">
+            <Tabs
+              size="sm"
+              value={rail}
+              onChange={setRail}
+              options={[
+                {value: 'activity', label: 'Activity'},
+                {value: 'leaders', label: 'Leaderboard'},
+              ]}
+            />
+            <ActivityBeat beat={activity.beat} />
+          </div>
+          <section aria-labelledby="board-activity-h" className={`${rail === 'activity' ? '' : 'hidden'} xl:block`}>
+            <div className="hidden xl:block">
+              <LiveHeading id="board-activity-h" right={<ActivityBeat beat={activity.beat} />}>
+                Activity
+              </LiveHeading>
+            </div>
+            <div className="xl:mt-2">
+              <ActivityFeed {...activity} rows={10} empty="Nothing yet. Trades and fees on every launch show up here as they land." />
+            </div>
+          </section>
+          <section aria-labelledby="board-leaders-h" className={`${rail === 'leaders' ? '' : 'hidden'} xl:mt-5 xl:block`}>
+            <div className="hidden xl:block">
+              <LiveHeading id="board-leaders-h">Most paid to the square</LiveHeading>
+            </div>
+            <div className="xl:mt-2">
+              <LeaderTable
+                {...leaders}
+                unit="ETH"
+                show={8}
+                empty="Nobody has paid a reference fee yet. The first wallet to make a third transfer in a block leads this."
+              />
+            </div>
+            <p className="mt-1.5 text-[12px] leading-5 text-ink-500">Reference fees paid on every launch, each valued in ETH at its token's price now.</p>
+          </section>
+        </aside>
+
+        <div className="min-w-0 xl:col-start-1 xl:row-start-1">
+      <section className="flex flex-col gap-3 md:flex-row md:items-center">
         <div className="md:w-72">
           <Input placeholder="Search name, ticker or address" value={q} onChange={e => setQ(e.target.value)} aria-label="Search launches" />
         </div>
@@ -141,7 +204,7 @@ export function Board() {
         ) : error ? (
           <ErrorBox title="Could not read the chain" body={error} retry={load} />
         ) : launches === null ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({length: 8}, (_, i) => (
               <TokenCardSkeleton key={i} />
             ))}
@@ -164,7 +227,7 @@ export function Board() {
           />
         ) : (
           <>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {list.slice(0, shown).map((l, i) => (
                 <TokenCard key={l.token} l={l} index={i} />
               ))}
@@ -179,6 +242,8 @@ export function Board() {
           </>
         )}
       </section>
+        </div>
+      </div>
     </main>
   );
 }
@@ -204,7 +269,9 @@ function Feature({l, badges, wide}: {l: Launch; badges: string[]; wide: boolean}
           <dl className="num mt-3 grid grid-cols-2 gap-3 text-[13px] sm:grid-cols-3">
             <div>
               <dt className="text-ink-500">market cap</dt>
-              <dd className="text-ink-100">{eth(l.marketCapEth)}</dd>
+              <dd className="text-ink-100">
+                <Flash value={l.marketCapEth}>{eth(l.marketCapEth)}</Flash>
+              </dd>
             </div>
             <div>
               <dt className="text-ink-500">{l.kind === 'pools' ? 'venue' : 'raised'}</dt>
@@ -215,13 +282,19 @@ function Feature({l, badges, wide}: {l: Launch; badges: string[]; wide: boolean}
             {l.moonJarEth !== undefined ? (
               <div>
                 <dt className="text-ink-500">moon jar</dt>
-                <dd className="text-brass-300">{eth(l.moonJarEth)}</dd>
+                <dd className="text-brass-300">
+                  <Flash value={l.moonJarEth} tint={false}>
+                    {eth(l.moonJarEth)}
+                  </Flash>
+                </dd>
               </div>
             ) : (
               <div>
                 <dt className="text-ink-500">square paid</dt>
                 <dd className="text-brass-300">
-                  {l.squarePaid.toFixed(0)} {l.symbol}
+                  <Flash value={l.squarePaid} tint={false}>
+                    {l.squarePaid.toFixed(0)} {l.symbol}
+                  </Flash>
                 </dd>
               </div>
             )}
@@ -238,7 +311,10 @@ function Feature({l, badges, wide}: {l: Launch; badges: string[]; wide: boolean}
             <Progress value={l.kind === 'pools' ? 100 : Math.min(100, progress)} tone={l.kind === 'pools' ? 'up' : 'brass'} label="Curve progress" />
           </div>
           <p className="num mt-1.5 text-[12px] text-ink-500">
-            by {short(l.creator)} · {ago(l.createdAt)} ago · {l.tradeCount} trades
+            by {short(l.creator)} · {ago(l.createdAt)} ago ·{' '}
+            <Flash value={l.tradeCount} tint={false}>
+              {l.tradeCount} trades
+            </Flash>
           </p>
         </div>
         <ReferenceMeter refs={l.referencesThisBlock} freeRefs={l.twoRatchets ? 2 : 1} />

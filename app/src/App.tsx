@@ -1,3 +1,4 @@
+import {SiteTicker} from './components/Activity';
 import {Header} from './components/Header';
 import {ToastRegion} from './components/ui/Bits';
 import {Boundary} from './components/ui/Boundary';
@@ -5,6 +6,7 @@ import {BRAND} from './lib/brand';
 import {RouterProvider, useRouter} from './lib/router';
 import {WalletProvider} from './lib/wallet';
 import {Board} from './pages/Board';
+import {Contagian, ContagianToken} from './pages/Contagian';
 import {How} from './pages/How';
 import {Launch} from './pages/Launch';
 import {Migrate, MigrateIndex} from './pages/Migrate';
@@ -20,6 +22,8 @@ function Routes() {
   else if (path === '/migrate') page = <MigrateIndex />;
   else if (path.startsWith('/migrate/')) page = <Migrate address={path.slice(9)} />;
   else if (path === '/square') page = <Square />;
+  else if (path === '/contagian') page = <Contagian />;
+  else if (path.startsWith('/contagian/')) page = <ContagianToken address={path.slice(11)} />;
   else if (path === '/how') page = <How />;
   else page = <Board />;
   return (
@@ -35,6 +39,7 @@ export function App() {
       <WalletProvider>
         <div className="min-h-dvh">
           <Header />
+          <SiteTicker />
           <Routes />
           <footer className="mx-auto max-w-7xl px-4 py-10 text-[12px] text-ink-600 sm:px-6">
             {BRAND.name} on {BRAND.chainName} · every rig pays the square ·{' '}

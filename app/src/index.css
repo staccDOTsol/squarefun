@@ -193,6 +193,98 @@
   border-radius: 6px;
 }
 
+/*
+  Live moments. The board is a monitor: when something lands it should be seen to land.
+  Same rule as above (one easing, nothing bounces), but short: arrivals 180ms, a changed
+  number rolls in 160ms, and the tint a change leaves behind decays over 700ms so the eye
+  can find what moved after the fact.
+*/
+@keyframes flash-up {
+  from { background-color: color-mix(in oklch, var(--color-up-500) 38%, transparent); }
+  to { background-color: transparent; }
+}
+@keyframes flash-down {
+  from { background-color: color-mix(in oklch, var(--color-down-500) 38%, transparent); }
+  to { background-color: transparent; }
+}
+@keyframes flash-brass {
+  from { background-color: color-mix(in oklch, var(--color-brass-500) 34%, transparent); }
+  to { background-color: transparent; }
+}
+@keyframes drop-in {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tick-up {
+  from { opacity: 0.15; transform: translateY(45%); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tick-down {
+  from { opacity: 0.15; transform: translateY(-45%); }
+  to { opacity: 1; transform: none; }
+}
+/* a big one landed: the row is jolted sideways, once */
+@keyframes shake {
+  0%, 100% { transform: none; }
+  18% { transform: translateX(-5px); }
+  36% { transform: translateX(4px); }
+  54% { transform: translateX(-3px); }
+  72% { transform: translateX(2px); }
+}
+/* the time left until the next read, as a bar that fills */
+@keyframes sweep {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@utility anim-flash-up {
+  animation: flash-up 700ms var(--ease-out-quart) both;
+}
+@utility anim-flash-down {
+  animation: flash-down 700ms var(--ease-out-quart) both;
+}
+@utility anim-flash-brass {
+  animation: flash-brass 700ms var(--ease-out-quart) both;
+}
+@utility anim-drop {
+  animation: drop-in 180ms var(--ease-out-quart) both;
+}
+@utility anim-tick-up {
+  display: inline-block;
+  animation: tick-up 160ms var(--ease-out-quart) both;
+}
+@utility anim-tick-down {
+  display: inline-block;
+  animation: tick-down 160ms var(--ease-out-quart) both;
+}
+@utility anim-shake {
+  animation: shake 320ms var(--ease-out-quart) both;
+}
+/*
+  A row that just arrived. Two utilities that each set `animation` cannot share an element (the
+  later one wins), so the arrival is one utility running the drop and the tint together, and the
+  big one adds the jolt once the drop has landed. The jolt takes no fill, so it does not hold the
+  row still while it waits.
+*/
+@utility anim-arrive {
+  animation: drop-in 180ms var(--ease-out-quart) both, flash-brass 700ms var(--ease-out-quart) both;
+}
+@utility anim-arrive-big {
+  animation: drop-in 180ms var(--ease-out-quart) both, flash-brass 1100ms var(--ease-out-quart) both, shake 320ms var(--ease-out-quart) 180ms;
+}
+@utility anim-sweep {
+  transform-origin: left center;
+  animation: sweep var(--sweep, 2s) linear both;
+}
+@utility anim-marquee {
+  animation: marquee var(--marquee, 40s) linear infinite;
+  &:hover { animation-play-state: paused; }
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
