@@ -9,12 +9,17 @@ transactions on a fork first (`test/adversarial/attack.mjs`). Not audited.
 
 | Contract | Address | |
 | --- | --- | --- |
-| `ContagianLauncher` | `0x62924A07935B49b487162b9aabcf7a9C35fc8531` | one transaction per launch; records every launch |
-| `ContagianVault` (implementation) | `0x8867cb4adbeB2CE26D27410d9437E2D51FaE94ea` | each launch's vault is a clone of it |
-| `ContagianLaunchStrategy` | `0xDBbBF22a02D44A47B88aF4e907F6254CA0933c84` | the Liquidity Launcher strategy |
-| `ContagianTokenFactory` | `0x957FAd3C7879278B03ae90735b0D8F6300Dd29f7` | makes the tokens |
+| `ContagianLauncher` | `0xb649955A1eADe63125e51367115b1638bF9A134e` | one transaction per launch; records every launch |
+| `ContagianVault` (implementation) | `0xe9681B6cCe47019E1467E8d7ADE732818E9fDb44` | each launch's vault is a clone of it |
+| `ContagianLaunchStrategy` | `0x28d1b307c485b2BBf9F5F06D83759E93a6b62f14` | the Liquidity Launcher strategy |
+| `ContagianTokenFactory` | `0x58aAC50568Fc68c95AC34BCCaD003F99BC1D394B` | makes the tokens |
 
-All four are exact matches on Sourcify. Source: `contracts/src/square/contagian/`.
+Second version, live since block 78,463,951. All four are exact matches on Sourcify and verified
+on Etherscan. Source: `contracts/src/square/contagian/`. The first version (launcher
+`0x62924A07935B49b487162b9aabcf7a9C35fc8531`) still stands; its one token is hidden on the site.
+
+First launch: Stable Contagian `0x174E6eEdA35971a1C8FE959B0320d85B9890544d`, vault
+`0xE39Eb4cB12717Da97bFba3cc6A0F18364165c205`, USDG as quote and peg.
 
 ## The rules
 
@@ -52,6 +57,10 @@ for good. Nothing trades under the opening price.
 
 They arrive as tokens and are never sold in a way that pushes the price away from the peg.
 
+The vault runs these itself: every transfer that is not a sale takes one turn (offer, settle,
+harvest one range, deepen one partner) and pays out one entry in the directory, if it is at
+least three tenths of the average. Anyone can also call them.
+
 | Call | What it does |
 | --- | --- |
 | `offer()` | puts 5% of the tolls on sale above the price in the launch pool, once an hour |
@@ -88,5 +97,8 @@ Open:
 - A sale needs spare balance for its tax, and a router that holds the tokens first has none: a
   taxed sale through one reverts.
 - A partner's price is two spot readings an hour apart.
+- An offer of dust still uses up the hour: the first toll on the live token was a few hundred
+  wei, so its first real offer came an hour late.
+- An offer pays out once the price has run through its whole range; until then it earns fees.
 - The same ratchet-fee-on-the-sale-leg defect that Contagian removes is still live on The Cook,
   REALMOON and every SquarePoolsTokenV2 launch: two transfers ahead of a sale in its block revert it.
