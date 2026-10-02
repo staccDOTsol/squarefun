@@ -2,6 +2,7 @@ import {upload} from '@vercel/blob/client';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import type {Address} from 'viem';
 import {ActivityBeat, ActivityFeed, LeaderTable, LiveHeading, amt, type LeaderRow} from '../components/Activity';
+import {ContagianTrade} from '../components/ContagianTrade';
 import {Button} from '../components/ui/Button';
 import {Input, Textarea} from '../components/ui/Field';
 import {Badge, Empty, ErrorBox, Skeleton, Tabs, toast} from '../components/ui/Bits';
@@ -958,8 +959,10 @@ export function ContagianToken({address}: {address: string}) {
             </section>
           )}
 
-          <section aria-labelledby="cranks-h">
-            <LiveHeading id="cranks-h">Open to anyone</LiveHeading>
+          <details aria-labelledby="cranks-h" className="group">
+            <summary className="cursor-pointer list-none text-[12px] uppercase tracking-[0.08em] text-ink-500 hover:text-ink-300">
+              <span id="cranks-h">The vault&rsquo;s chores</span> <span className="normal-case tracking-normal text-ink-600">· a keeper runs these; anyone may · <span className="group-open:hidden">show</span><span className="hidden group-open:inline">hide</span></span>
+            </summary>
             <ul className="mt-2 divide-y divide-ink-850 overflow-hidden rounded-lg border border-ink-800">
               {cranks.map(c => (
                 <li key={c.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 bg-ink-900 px-4 py-3">
@@ -974,10 +977,11 @@ export function ContagianToken({address}: {address: string}) {
                 </li>
               ))}
             </ul>
-          </section>
+          </details>
         </div>
 
         <aside className="space-y-4 lg:sticky lg:top-[72px] lg:self-start">
+          {l && <ContagianTrade token={l.token} symbol={l.symbol} quote={l.quote} underParity={l.spot !== null && l.parity !== null && l.spot < l.parity} onDone={load} />}
           <div className="rounded-lg border border-ink-800 bg-ink-900 p-4">
             <p className="text-[13px] font-medium text-ink-200">Your place in the directory</p>
             <dl className="num mt-3 space-y-2 text-[13px]">
