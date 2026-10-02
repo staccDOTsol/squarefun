@@ -47,6 +47,8 @@ export const ADDR = deployment as {
     deployBlock?: number;
     /** tokens the site does not show anywhere: not listed, not found by address, and absent from every feed and board */
     hidden?: Address[];
+    /** listed nowhere, but its page still opens by address */
+    unlisted?: Address[];
   };
   /** MigrateFactory: the pooper scooper. Zero until deployed. */
   migrateFactory?: Address;

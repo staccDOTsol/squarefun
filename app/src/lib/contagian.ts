@@ -26,6 +26,12 @@ export const contagianDeployed = LAUNCHERS.length > 0;
  */
 const HIDDEN = new Set((ADDR.contagian?.hidden ?? []).map(a => a.toLowerCase()));
 export const isHidden = (token: string) => HIDDEN.has(token.toLowerCase());
+/**
+ * Tokens the site lists nowhere (board, lander, feeds, ticker, leaderboards) but still opens by
+ * address, so a holder with the link can trade out. A hidden token is unlisted too.
+ */
+const UNLISTED = new Set((ADDR.contagian?.unlisted ?? []).map(a => a.toLowerCase()));
+export const isUnlisted = (token: string) => isHidden(token) || UNLISTED.has(token.toLowerCase());
 
 export const USDG: Address = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168';
 /** Uniswap v4 StateView on Robinhood: pool reads without going through the manager's storage. */
@@ -550,7 +556,7 @@ export const contagian = {
     );
     const shown = found
       .flat()
-      .filter(r => !isHidden(r.token))
+      .filter(r => !isUnlisted(r.token))
       .sort((a, b) => (a.launchedAt === b.launchedAt ? 0 : a.launchedAt < b.launchedAt ? 1 : -1))
       .slice(0, cap);
     return Promise.all(shown.map(hydrate));

@@ -92,6 +92,9 @@
       "vaultImplementation": "0xe9681B6cCe47019E1467E8d7ADE732818E9fDb44",
       "tokenFactory": "0x58aAC50568Fc68c95AC34BCCaD003F99BC1D394B",
       "deployBlock": 78463951
-    }
+    },
+    "unlisted": [
+      "0x174E6eEdA35971a1C8FE959B0320d85B9890544d"
+    ]
   }
 }

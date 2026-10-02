@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useSyncExternalStore} from 'react';
 import {formatEther, parseAbi, type Address, type Hex} from 'viem';
 import {ADDR, blockTimestamp, curveAbi, once, publicClient, scan, tokenAbi} from './chain';
-import {LAUNCHERS, assetOf, contagianDeployed, isHidden, launcherAbi, poolOf, referenceEvent, swapEvent, swapSides, vaultEventAbi, type Asset} from './contagian';
+import {LAUNCHERS, assetOf, contagianDeployed, isUnlisted, launcherAbi, poolOf, referenceEvent, swapEvent, swapSides, vaultEventAbi, type Asset} from './contagian';
 import {data} from './data';
 import {useLive} from './live';
 
@@ -392,7 +392,7 @@ async function readContagian(to: bigint): Promise<ContagianRead> {
     // A hidden token is read like any other (so nothing is missing if it is shown again) and
     // dropped here: everything below is keyed by these, so its launch, its vault's events, its
     // swaps and its totals never reach a feed, the ticker or a leaderboard.
-    Promise.all(launches.filter(l => !isHidden(l.token)).map(async l => ({token: l.token, vault: l.vault, symbol: await symbolOf(l.token), quote: await assetOf(l.quote)}))),
+    Promise.all(launches.filter(l => !isUnlisted(l.token)).map(async l => ({token: l.token, vault: l.vault, symbol: await symbolOf(l.token), quote: await assetOf(l.quote)}))),
   ]);
   const info = new Map(infos.map(i => [i.vault.toLowerCase(), i]));
   // the asset a tranche was offered against, or a range was collected in: named and sized, not shown as an address
